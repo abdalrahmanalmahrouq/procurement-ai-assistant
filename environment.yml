@@ -72,6 +72,9 @@ dependencies:
   - zeromq=4.3.5
   - zlib=1.3.2
   - pip:
+      - dnspython==2.8.0
       - numpy==2.5.2
       - pandas==3.0.5
+      - pymongo==4.17.0
+      - python-dotenv==1.2.3
 prefix: /home/abood-linux/miniconda3/envs/procurement-ai-assistant
