@@ -72,9 +72,21 @@ dependencies:
   - zeromq=4.3.5
   - zlib=1.3.2
   - pip:
+      - annotated-doc==0.0.5
+      - annotated-types==0.8.0
+      - anyio==4.15.0
+      - click==8.5.0
       - dnspython==2.8.0
+      - fastapi==0.141.1
+      - h11==0.16.0
+      - idna==3.19
       - numpy==2.5.2
       - pandas==3.0.5
+      - pydantic==2.13.5
+      - pydantic-core==2.46.5
       - pymongo==4.17.0
       - python-dotenv==1.2.3
+      - starlette==1.6.0
+      - typing-inspection==0.4.4
+      - uvicorn==0.52.4
 prefix: /home/abood-linux/miniconda3/envs/procurement-ai-assistant
