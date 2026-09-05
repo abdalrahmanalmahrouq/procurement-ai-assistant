@@ -2,8 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.procurement import router as procurement_router
-
-
+from app.routers.orders import router as orders_router
+from app.routers.suppliers import router as suppliers_router
+from app.routers.departments import router as departments_router
 app = FastAPI(
     title="Penny Procurement AI API"
 )
@@ -26,3 +27,6 @@ app.add_middleware(
 )
 
 app.include_router(procurement_router)
+app.include_router(orders_router)
+app.include_router(suppliers_router)
+app.include_router(departments_router)

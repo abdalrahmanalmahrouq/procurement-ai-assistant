@@ -2,6 +2,36 @@ data
 
 docs
 
-.env
+
 
 scripts/test_queries.py
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+.env
+.env.*
+
+# Frontend dependencies and generated build output
+node_modules/
+dist/
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+.cache/
+.parcel-cache/
+.vite/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python packaging
+build/
+dist/
+*.egg-info/
+.eggs/
