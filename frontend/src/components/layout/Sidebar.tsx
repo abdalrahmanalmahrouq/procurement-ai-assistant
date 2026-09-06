@@ -31,7 +31,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         <div className="flex items-start gap-3 px-2">
           <BrandMark />
           <div className="pt-1">
-            <div className="text-[19px] font-bold leading-6 tracking-[-0.02em] text-slate-950">Public Procurement<br />Demo</div>
+            <div className="text-[19px] font-bold leading-6 tracking-[-0.02em] text-slate-950">Procurement<br />Demo</div>
             <div className="mt-2 text-xs leading-4 text-slate-500">California Public<br />Procurement Dataset</div>
           </div>
         </div>
@@ -57,7 +57,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             <Headphones className="h-6 w-6 text-slate-600" />
             <div>
               <p className="text-[11px] font-semibold text-slate-800">Need help?</p>
-              <button className="mt-1 text-[11px] font-semibold text-emerald">Contact support</button>
+              <button className="mt-1 text-[11px] font-semibold text-blue">Contact support</button>
             </div>
           </div>
         </div>

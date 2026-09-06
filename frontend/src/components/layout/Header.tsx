@@ -38,7 +38,7 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
       
       
       <div className="ml-3 flex items-center gap-3 border-l border-slate-100 pl-4">
-        <Avatar name={person} size="lg" color={pathname === '/assistant' ? '#88cbb3' : '#1f619e'} />
+        <Avatar name={person} size="lg" color={pathname === '/assistant' ? '#1f619e' : '#1f619e'} />
         <div className="hidden min-w-0 xl:block">
           <p className="truncate text-xs font-bold text-slate-900">{person}</p>
           <p className="mt-1 text-[10px] text-slate-500">Procurement Analyst</p>
