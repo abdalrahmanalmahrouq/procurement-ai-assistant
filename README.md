@@ -231,10 +231,10 @@ Never commit `.env` to source control.
 ### 6. Prepare and load the procurement data
 
 Place the source CSV in the project's raw data directory:
+- and here is the link of the data : 
+- https://www.kaggle.com/datasets/sohier/large-purchases-by-the-state-of-ca
+- put the downloaded data into data/raw directory 
 
-```text
-data/raw/
-```
 
 Run the repository's cleaning/preprocessing script to create the processed dataset, then import it into MongoDB Atlas using the ingestion script.
 
