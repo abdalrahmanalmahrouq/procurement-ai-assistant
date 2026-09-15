@@ -16,7 +16,8 @@ The main goal of the project is to demonstrate how traditional procurement analy
 - Intent routing for greetings, project help, out-of-scope requests, and analytics
 - LangGraph workflow with validation and automatic query correction
 - Grounded answers generated from real MongoDB results
-- Follow-up conversation support with thread-based memory
+- Persistent conversation history backed by MongoDB
+- Independent chats with a conversation sidebar and follow-up context
 - Server-Sent Events (SSE) for live workflow progress and streamed answers
 - Generated MongoDB pipeline available in the UI for transparency
 
@@ -42,6 +43,8 @@ The main goal of the project is to demonstrate how traditional procurement analy
 ```mermaid
 flowchart LR
     U[React UI] --> API[FastAPI]
+    API --> H[(Conversations and messages)]
+    H --> G
     API --> G[LangGraph Agent]
     G --> R{Route request}
     R -->|Greeting / help / out of scope| D[Direct response]
@@ -125,7 +128,7 @@ At a high level, each user message follows this process:
 5. Invalid pipelines are sent through a correction/retry path.
 6. Valid pipelines execute against MongoDB Atlas with result and execution safeguards.
 7. The returned data is passed to the answer-generation step and streamed back to the frontend.
-8. Conversation state is preserved by thread ID so follow-up questions can reuse context in both routing and query generation.
+8. Completed turns are stored in the `conversations` and `messages` MongoDB collections. Reopening a conversation loads its recent context for routing and query generation, including after an API restart.
 
 The validator is intentionally separate from the LLM. It restricts unsupported or unsafe MongoDB behavior and prevents generated queries from being executed blindly.
 
@@ -143,6 +146,8 @@ The backend contains additional analytics routes; these are some of the most imp
 | `GET` | `/api/departments/summary` | Department-level procurement KPIs |
 | `POST` | `/api/chat` | Standard AI assistant request |
 | `POST` | `/api/chat/stream` | Streaming AI workflow using SSE |
+| `GET` | `/api/chat/conversations` | Conversation history for the sidebar |
+| `GET` | `/api/chat/conversations/{id}` | A conversation and all of its messages |
 
 FastAPI also exposes interactive API documentation at:
 
@@ -230,6 +235,10 @@ Never commit `.env` to source control.
 3. Allow your development IP address under Network Access.
 4. Add the Atlas connection string to `MONGODB_URI`.
 5. Ensure the application uses the `procurement_records` collection.
+
+After configuring MongoDB, run `python scripts/create_indexes.py` once. Alongside
+the analytics indexes, it creates the conversation/message indexes used by chat
+history.
 
 ### 6. Prepare and load the procurement data
 
