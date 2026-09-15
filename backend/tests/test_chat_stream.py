@@ -21,6 +21,10 @@ with patch("pymongo.MongoClient"):
 
 class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
+        self.route = MagicMock()
+        self.route.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
+            route="analytical"
+        )
         self.query = MagicMock()
         self.query.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
             pipeline=[{"$count": "count"}], description="Count procurement line records."
@@ -29,6 +33,7 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
         self.collection = MagicMock()
         self.collection.aggregate.return_value = [{"count": 3}]
         for target, value in [
+            ("app.ai.nodes.route_question.get_llm", self.route),
             ("app.ai.nodes.generate_query.get_llm", self.query),
             ("app.ai.nodes.correct_query.get_llm", self.query),
             ("app.ai.nodes.generate_answer.get_llm", self.answer),
@@ -46,7 +51,7 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_graph_streams_tokens_and_preserves_followup_history(self):
         events = await self.collect()
         self.assertEqual(events[0]["type"], "start")
-        self.assertEqual(events[1]["step"], "generate_query")
+        self.assertEqual(events[1]["step"], "route_question")
         deltas = [event["text"] for event in events if event["type"] == "answer_delta"]
         self.assertGreater(len(deltas), 1)
         self.assertEqual("".join(deltas), events[-1]["answer"])
@@ -58,6 +63,34 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
         messages = self.query.with_structured_output.return_value.invoke.call_args.args[0]
         self.assertEqual([message.type for message in messages], ["system", "human", "ai", "human"])
         self.assertEqual(messages[-1].content, "What about last year?")
+        route_messages = self.route.with_structured_output.return_value.invoke.call_args.args[0]
+        self.assertEqual([message.type for message in route_messages], ["system", "human", "ai", "human"])
+
+    async def test_direct_routes_skip_query_generation_and_database(self):
+        expected_phrases = {
+            "greeting": "Hello!",
+            "project_help": "I can answer questions",
+            "out_of_scope": "I can only help",
+        }
+
+        for category, expected_phrase in expected_phrases.items():
+            with self.subTest(category=category):
+                self.route.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
+                    route=category
+                )
+                events = await self.collect(category)
+                self.assertEqual(events[-1]["type"], "done")
+                self.assertIn(expected_phrase, events[-1]["answer"])
+                self.assertIsNone(events[-1]["pipeline"])
+                self.assertFalse(any(event.get("type") == "query" for event in events))
+                self.assertFalse(any(event.get("step") == "generate_query" for event in events))
+                self.assertEqual(
+                    "".join(event["text"] for event in events if event["type"] == "answer_delta"),
+                    events[-1]["answer"],
+                )
+
+        self.query.with_structured_output.return_value.invoke.assert_not_called()
+        self.collection.aggregate.assert_not_called()
 
     async def test_validation_failure_after_success_does_not_reuse_results(self):
         first = await self.collect()

@@ -17,6 +17,14 @@ from app.ai.nodes.generate_query import (
     generate_query,
 )
 
+from app.ai.nodes.route_question import (
+    route_question,
+)
+
+from app.ai.nodes.generate_direct_response import (
+    generate_direct_response,
+)
+
 from app.ai.nodes.validate_query import (
     validate_query,
 )
@@ -43,6 +51,15 @@ from app.ai.nodes.save_conversation import (
 
 MAX_QUERY_RETRIES = 2
 checkpointer = InMemorySaver()
+
+
+def route_after_classification(
+    state: ProcurementAgentState,
+) -> str:
+    if state.get("route_category") == "analytical":
+        return "analytical"
+
+    return "direct"
 
 def route_after_validation(
     state: ProcurementAgentState
@@ -73,6 +90,16 @@ def build_procurement_graph():
     # -----------------------------
     # Register nodes
     # -----------------------------
+
+    builder.add_node(
+        "route_question",
+        route_question,
+    )
+
+    builder.add_node(
+        "generate_direct_response",
+        generate_direct_response,
+    )
 
     builder.add_node(
         "generate_query",
@@ -115,7 +142,21 @@ def build_procurement_graph():
 
     builder.add_edge(
         START,
-        "generate_query",
+        "route_question",
+    )
+
+    builder.add_conditional_edges(
+        "route_question",
+        route_after_classification,
+        {
+            "direct": "generate_direct_response",
+            "analytical": "generate_query",
+        },
+    )
+
+    builder.add_edge(
+        "generate_direct_response",
+        "save_conversation",
     )
 
     builder.add_edge(

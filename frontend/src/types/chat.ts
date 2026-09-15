@@ -1,5 +1,5 @@
 export type Pipeline = Record<string, unknown>[];
-export type ChatStep = 'generate_query' | 'validate_query' | 'correct_query' | 'execute_query' | 'generate_answer';
+export type ChatStep = 'route_question' | 'generate_direct_response' | 'generate_query' | 'validate_query' | 'correct_query' | 'execute_query' | 'generate_answer';
 export type StepStatus = 'running' | 'complete' | 'error';
 
 export interface ChatResponse {

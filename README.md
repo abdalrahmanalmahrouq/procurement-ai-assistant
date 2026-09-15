@@ -13,6 +13,7 @@ The main goal of the project is to demonstrate how traditional procurement analy
 - FastAPI backend with reusable aggregation endpoints
 - React + TypeScript + Tailwind CSS frontend
 - Natural-language → MongoDB query generation
+- Intent routing for greetings, project help, out-of-scope requests, and analytics
 - LangGraph workflow with validation and automatic query correction
 - Grounded answers generated from real MongoDB results
 - Follow-up conversation support with thread-based memory
@@ -42,7 +43,9 @@ The main goal of the project is to demonstrate how traditional procurement analy
 flowchart LR
     U[React UI] --> API[FastAPI]
     API --> G[LangGraph Agent]
-    G --> Q[Generate MongoDB Pipeline]
+    G --> R{Route request}
+    R -->|Greeting / help / out of scope| D[Direct response]
+    R -->|Analytical| Q[Generate MongoDB Pipeline]
     Q --> V[Validate Pipeline]
     V -->|Invalid| C[Correct Query]
     C --> V
@@ -113,16 +116,16 @@ The workflow also supports automatic query correction when validation fails, con
 
 ## AI Assistant Workflow
 
-At a high level, each user question follows this process:
+At a high level, each user message follows this process:
 
-1. The LLM receives the procurement schema, business rules, and current conversation context.
-2. It generates a structured MongoDB aggregation pipeline.
-3. A deterministic Python validator checks the pipeline before any database execution.
-4. Invalid pipelines are sent through a correction/retry path.
-5. Valid pipelines execute against MongoDB Atlas with result and execution safeguards.
-6. The returned data is passed to the answer-generation step.
-7. The final answer is streamed back to the frontend.
-8. Conversation state is preserved by thread ID so follow-up questions can reuse context.
+1. A router classifies the message as a greeting, project-help request, out-of-scope request, or analytical procurement question.
+2. Direct-response categories receive an immediate scoped reply and stop without generating or executing a database query.
+3. For analytical questions, the LLM receives the procurement schema, business rules, and current conversation context and generates a structured MongoDB aggregation pipeline.
+4. A deterministic Python validator checks the pipeline before any database execution.
+5. Invalid pipelines are sent through a correction/retry path.
+6. Valid pipelines execute against MongoDB Atlas with result and execution safeguards.
+7. The returned data is passed to the answer-generation step and streamed back to the frontend.
+8. Conversation state is preserved by thread ID so follow-up questions can reuse context in both routing and query generation.
 
 The validator is intentionally separate from the LLM. It restricts unsupported or unsafe MongoDB behavior and prevents generated queries from being executed blindly.
 
@@ -320,4 +323,3 @@ This project uses the **Large Purchases by the State of California** public proc
 - AI-generated answers should remain grounded in database results. The generated MongoDB pipeline is exposed in the UI to make the analytical process easier to inspect.
 
 ---
-

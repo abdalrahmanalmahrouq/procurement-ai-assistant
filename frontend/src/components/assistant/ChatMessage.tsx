@@ -67,7 +67,7 @@ export function ChatMessage({ turn, onRetry, canRetry }: { turn: ChatTurn; onRet
         <div className="min-w-0 flex-1 rounded-2xl rounded-tl-sm border border-slate-200 bg-white p-4 sm:p-5">
           <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-slate-800">Procurement Assistant{streaming && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald">Working</span>}</div>
           {turn.progress.length > 0 && <details open={streaming} className="mb-4 rounded-lg bg-slate-50 px-3 py-2.5">
-            <summary className="cursor-pointer text-xs text-slate-600"><span role="status">{streaming ? running?.label ?? 'Finishing response' : turn.status === 'error' ? 'Response interrupted' : hasWarning ? 'Process completed with an issue' : 'Query process complete'}</span></summary>
+            <summary className="cursor-pointer text-xs text-slate-600"><span role="status">{streaming ? running?.label ?? 'Finishing response' : turn.status === 'error' ? 'Response interrupted' : hasWarning ? 'Process completed with an issue' : 'Response complete'}</span></summary>
             <ol className="mt-3 space-y-2.5 border-t border-slate-200 pt-3">
               {turn.progress.map((item) => <li key={item.step} className="flex items-center gap-2 text-xs text-slate-600">
                 {item.status === 'running' && streaming ? <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald" /> : item.status === 'error' || item.status === 'running' ? <AlertCircle className="h-3.5 w-3.5 text-amber-600" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald" />}

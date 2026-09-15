@@ -16,6 +16,7 @@ def initial_state(message: str) -> dict[str, Any]:
     # Checkpoints retain history, but results/errors must never leak across turns.
     return {
         "question": message,
+        "route_category": "analytical",
         "retry_count": 0,
         "pipeline": [],
         "query_description": "",
@@ -29,13 +30,15 @@ def initial_state(message: str) -> dict[str, Any]:
 
 
 def chat_response(conversation_id: str, state: dict[str, Any]) -> dict[str, Any]:
+    is_analytical = state.get("route_category", "analytical") == "analytical"
+
     return ChatResponse(
         conversation_id=conversation_id,
         answer=state.get("answer") or "I was unable to answer that question.",
-        query_description=state.get("query_description"),
-        pipeline=state.get("pipeline"),
-        result_count=state.get("result_count", 0),
-        retry_count=state.get("retry_count", 0),
+        query_description=state.get("query_description") if is_analytical else None,
+        pipeline=state.get("pipeline") if is_analytical else None,
+        result_count=state.get("result_count", 0) if is_analytical else 0,
+        retry_count=state.get("retry_count", 0) if is_analytical else 0,
     ).model_dump(mode="json")
 
 
@@ -60,7 +63,7 @@ async def stream_chat_message(
     state = initial_state(message)
     finished = False
     yield {"type": "start", "conversation_id": conversation_id}
-    yield progress("generate_query", "running", "Generating MongoDB query")
+    yield progress("route_question", "running", "Understanding your request")
 
     try:
         async with aclosing(procurement_graph.astream(
@@ -89,7 +92,17 @@ async def stream_chat_message(
                     if not isinstance(update, dict):
                         continue
                     state.update(update)
-                    if node in ("generate_query", "correct_query"):
+                    if node == "route_question":
+                        yield progress(node, "complete", "Request understood")
+                        if state.get("route_category") == "analytical":
+                            yield progress("generate_query", "running", "Generating MongoDB query")
+                        else:
+                            yield progress("generate_direct_response", "running", "Preparing response")
+                    elif node == "generate_direct_response":
+                        yield progress(node, "complete", "Response prepared")
+                        if state.get("answer"):
+                            yield {"type": "answer_delta", "text": state["answer"]}
+                    elif node in ("generate_query", "correct_query"):
                         yield progress(node, "complete", "Query generated" if node == "generate_query" else "Query corrected")
                         yield {
                             "type": "query",

@@ -1,10 +1,15 @@
 from typing import Any, TypedDict
 
+from app.ai.models.route_model import RouteCategory
+
 
 class ProcurementAgentState(TypedDict, total=False):
 
     # User input
     question: str
+
+    # Initial intent routing
+    route_category: RouteCategory
 
     # Previous conversation context
     chat_history: list[dict[str, str]]
