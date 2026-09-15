@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { streamChat } from '../services/chatService';
-import type { ChatEvent, ChatTurn } from '../types/chat';
+import { fetchConversation, fetchConversations, streamChat } from '../services/chatService';
+import type { ChatEvent, ChatTurn, ConversationSummary, StoredMessage } from '../types/chat';
 
 function applyEvent(turn: ChatTurn, event: ChatEvent): ChatTurn {
   switch (event.type) {
@@ -25,16 +25,99 @@ function applyEvent(turn: ChatTurn, event: ChatEvent): ChatTurn {
   }
 }
 
+function messagesToTurns(messages: StoredMessage[]): ChatTurn[] {
+  const turns = new Map<string, ChatTurn>();
+
+  for (const message of messages) {
+    if (message.role === 'user') {
+      turns.set(message.turn_id, {
+        id: message.turn_id,
+        question: message.content,
+        createdAt: message.created_at,
+        answer: '',
+        status: 'complete',
+        progress: [],
+        pipeline: null,
+        queryDescription: null,
+        retryCount: 0,
+      });
+      continue;
+    }
+
+    const turn = turns.get(message.turn_id);
+    if (turn) {
+      turns.set(message.turn_id, {
+        ...turn,
+        answer: message.content,
+        pipeline: message.pipeline,
+        queryDescription: message.query_description,
+        queryGeneratedAt: message.pipeline ? message.created_at : undefined,
+        resultCount: message.result_count,
+        retryCount: message.retry_count,
+      });
+    }
+  }
+
+  return [...turns.values()];
+}
+
 export function useChat() {
   const [turns, setTurns] = useState<ChatTurn[]>([]);
+  const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [activeConversationId, setActiveConversationId] = useState<string>();
   const [isStreaming, setIsStreaming] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [historyError, setHistoryError] = useState<string>();
   const conversationId = useRef<string | undefined>(undefined);
   const activeRequest = useRef<AbortController | null>(null);
+  const historyRequest = useRef<AbortController | null>(null);
 
-  useEffect(() => () => {
-    activeRequest.current?.abort();
-    activeRequest.current = null;
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchConversations(controller.signal)
+      .then(setConversations)
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : 'Could not load chat history.');
+      });
+    return () => {
+      controller.abort();
+      activeRequest.current?.abort();
+      historyRequest.current?.abort();
+      activeRequest.current = null;
+    };
   }, []);
+
+  async function refreshConversations() {
+    try {
+      setConversations(await fetchConversations());
+      setHistoryError(undefined);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : 'Could not load chat history.');
+    }
+  }
+
+  async function openConversation(id: string) {
+    if (activeRequest.current || id === conversationId.current) return;
+    historyRequest.current?.abort();
+    const controller = new AbortController();
+    historyRequest.current = controller;
+    setIsLoadingMessages(true);
+    setHistoryError(undefined);
+    try {
+      const result = await fetchConversation(id, controller.signal);
+      if (historyRequest.current !== controller) return;
+      conversationId.current = result.conversation.id;
+      setActiveConversationId(result.conversation.id);
+      setTurns(messagesToTurns(result.messages));
+    } catch (error) {
+      if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : 'Could not load this conversation.');
+    } finally {
+      if (historyRequest.current === controller) {
+        historyRequest.current = null;
+        setIsLoadingMessages(false);
+      }
+    }
+  }
 
   async function sendMessage(message: string, retryId?: string) {
     const question = message.trim();
@@ -56,8 +139,14 @@ export function useChat() {
     try {
       await streamChat(question, conversationId.current, (event) => {
         if (activeRequest.current !== controller) return;
-        if (event.type === 'start' || event.type === 'done') conversationId.current = event.conversation_id;
+        // The server persists the turn before "done". Do not adopt a new ID
+        // earlier, or a failed first request would point at an unsaved chat.
+        if (event.type === 'done') {
+          conversationId.current = event.conversation_id;
+          setActiveConversationId(event.conversation_id);
+        }
         setTurns((current) => current.map((item) => item.id === turn.id ? applyEvent(item, event) : item));
+        if (event.type === 'done') void refreshConversations();
       }, controller.signal);
     } catch (error) {
       if (activeRequest.current !== controller) return;
@@ -75,9 +164,24 @@ export function useChat() {
 
   function newConversation() {
     if (activeRequest.current) return;
+    historyRequest.current?.abort();
+    historyRequest.current = null;
     conversationId.current = undefined;
+    setActiveConversationId(undefined);
     setTurns([]);
+    setIsLoadingMessages(false);
+    setHistoryError(undefined);
   }
 
-  return { turns, isStreaming, sendMessage, newConversation };
+  return {
+    turns,
+    conversations,
+    activeConversationId,
+    isStreaming,
+    isLoadingMessages,
+    historyError,
+    sendMessage,
+    openConversation,
+    newConversation,
+  };
 }

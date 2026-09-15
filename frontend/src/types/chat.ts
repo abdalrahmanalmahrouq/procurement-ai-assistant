@@ -39,3 +39,28 @@ export interface ChatTurn {
   retryCount: number;
   error?: string;
 }
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StoredMessage {
+  id: string;
+  conversation_id: string;
+  turn_id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  created_at: string;
+  query_description: string | null;
+  pipeline: Pipeline | null;
+  result_count: number;
+  retry_count: number;
+}
+
+export interface ConversationMessages {
+  conversation: ConversationSummary;
+  messages: StoredMessage[];
+}

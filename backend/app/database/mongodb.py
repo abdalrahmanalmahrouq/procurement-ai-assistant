@@ -17,4 +17,6 @@ client = MongoClient(MONGODB_URI)
 
 db = client[MONGODB_DB]
 
-procurement_collection = db[os.getenv("COLLECTION_NAME")]
+procurement_collection = db[os.getenv("COLLECTION_NAME", "procurement_records")]
+conversations_collection = db["conversations"]
+messages_collection = db["messages"]

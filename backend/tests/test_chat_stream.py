@@ -59,7 +59,15 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[-1]["type"], "done")
         self.assertEqual(events[-1]["result_count"], 1)  # Aggregate rows, not source records.
         thread_id = events[0]["conversation_id"]
-        await self.collect("What about last year?", thread_id)
+        stored_history = [
+            {"role": "user", "content": "How many line records?"},
+            {"role": "assistant", "content": events[-1]["answer"]},
+        ]
+        with patch(
+            "app.services.chat_service.load_chat_history",
+            return_value=stored_history,
+        ):
+            await self.collect("What about last year?", thread_id)
         messages = self.query.with_structured_output.return_value.invoke.call_args.args[0]
         self.assertEqual([message.type for message in messages], ["system", "human", "ai", "human"])
         self.assertEqual(messages[-1].content, "What about last year?")

@@ -7,7 +7,7 @@ import ts from 'typescript';
 const source = (await readFile(new URL('../src/services/chatService.ts', import.meta.url), 'utf8'))
   .replace("import.meta.env.VITE_API_URL ?? ''", "''");
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } });
-const { consumeChatStream, streamChat } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+const { consumeChatStream, fetchConversation, fetchConversations, streamChat } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 const encode = (value) => new TextEncoder().encode(value);
 const frame = (event) => `data: ${JSON.stringify(event)}\n\n`;
 const done = { type: 'done', conversation_id: 'thread-1', answer: 'Hello', pipeline: [], query_description: '', result_count: 0, retry_count: 0 };
@@ -52,4 +52,18 @@ test('sends conversation context and handles HTTP validation errors', async (con
     return new Response(JSON.stringify({ detail: [{ msg: 'invalid' }] }), { status: 422 });
   });
   await assert.rejects(streamChat('Follow up', 'thread-1', () => {}, new AbortController().signal), /failed \(422\)/);
+});
+
+test('loads the conversation list and an encoded conversation id', async (context) => {
+  const responses = [
+    [{ id: 'thread-1', title: 'First chat', created_at: '2026-01-01', updated_at: '2026-01-01' }],
+    { conversation: { id: 'thread/1' }, messages: [] },
+  ];
+  let call = 0;
+  context.mock.method(globalThis, 'fetch', async (url) => {
+    assert.equal(url, call === 0 ? '/api/chat/conversations' : '/api/chat/conversations/thread%2F1');
+    return Response.json(responses[call++]);
+  });
+  assert.equal((await fetchConversations())[0].title, 'First chat');
+  assert.equal((await fetchConversation('thread/1')).conversation.id, 'thread/1');
 });

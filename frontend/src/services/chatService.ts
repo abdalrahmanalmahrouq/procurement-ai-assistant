@@ -1,6 +1,23 @@
-import type { ChatEvent } from '../types/chat';
+import type { ChatEvent, ConversationMessages, ConversationSummary } from '../types/chat';
 
 const API_URL = import.meta.env.VITE_API_URL ?? '';
+
+async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${API_URL}${path}`, { signal });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { detail?: unknown } | null;
+    throw new Error(typeof body?.detail === 'string' ? body.detail : `The request failed (${response.status}).`);
+  }
+  return response.json() as Promise<T>;
+}
+
+export function fetchConversations(signal?: AbortSignal): Promise<ConversationSummary[]> {
+  return getJson('/api/chat/conversations', signal);
+}
+
+export function fetchConversation(conversationId: string, signal?: AbortSignal): Promise<ConversationMessages> {
+  return getJson(`/api/chat/conversations/${encodeURIComponent(conversationId)}`, signal);
+}
 
 /** Decode SSE frames across arbitrary network and UTF-8 chunk boundaries. */
 export async function consumeChatStream(

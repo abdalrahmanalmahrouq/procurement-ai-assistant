@@ -8,14 +8,19 @@ from uuid import uuid4
 
 from app.ai.agent.graph import MAX_QUERY_RETRIES, procurement_graph
 from app.models.chat import ChatResponse
+from app.services.conversation_service import load_chat_history, save_turn
 
 logger = logging.getLogger(__name__)
 
 
-def initial_state(message: str) -> dict[str, Any]:
-    # Checkpoints retain history, but results/errors must never leak across turns.
+def initial_state(
+    message: str,
+    chat_history: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
+    # MongoDB supplies history; results and errors must never leak across turns.
     return {
         "question": message,
+        "chat_history": chat_history or [],
         "route_category": "analytical",
         "retry_count": 0,
         "pipeline": [],
@@ -43,12 +48,21 @@ def chat_response(conversation_id: str, state: dict[str, Any]) -> dict[str, Any]
 
 
 def process_chat_message(message: str, conversation_id: str | None = None):
+    existing_conversation_id = conversation_id
     conversation_id = conversation_id or str(uuid4())
+    turn_id = str(uuid4())
     result = procurement_graph.invoke(
-        initial_state(message),
+        initial_state(message, load_chat_history(existing_conversation_id)),
         config={"configurable": {"thread_id": conversation_id}},
     )
-    return chat_response(conversation_id, result)
+    response = chat_response(conversation_id, result)
+    save_turn(
+        conversation_id=conversation_id,
+        turn_id=turn_id,
+        question=message,
+        response=response,
+    )
+    return response
 
 
 def progress(step: str, status: str, label: str) -> dict[str, Any]:
@@ -59,13 +73,16 @@ async def stream_chat_message(
     message: str, conversation_id: str | None = None
 ) -> AsyncIterator[dict[str, Any]]:
     """Allowlist public artifacts; never forward raw graph state or reasoning."""
+    existing_conversation_id = conversation_id
     conversation_id = conversation_id or str(uuid4())
+    turn_id = str(uuid4())
     state = initial_state(message)
     finished = False
     yield {"type": "start", "conversation_id": conversation_id}
     yield progress("route_question", "running", "Understanding your request")
 
     try:
+        state = initial_state(message, load_chat_history(existing_conversation_id))
         async with aclosing(procurement_graph.astream(
             state,
             config={"configurable": {"thread_id": conversation_id}},
@@ -131,7 +148,14 @@ async def stream_chat_message(
         # and closes its stream or submits a follow-up question.
         if not finished:
             raise RuntimeError("The agent ended without saving the conversation.")
-        yield {"type": "done", **chat_response(conversation_id, state)}
+        response = chat_response(conversation_id, state)
+        save_turn(
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            question=message,
+            response=response,
+        )
+        yield {"type": "done", **response}
     except Exception:
         logger.exception("AI assistant stream failed")
         yield {

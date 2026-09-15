@@ -11,11 +11,19 @@ from fastapi import (
 from app.models.chat import (
     ChatRequest,
     ChatResponse,
+    ConversationMessages,
+    ConversationSummary,
 )
 
 from app.services.chat_service import (
     process_chat_message,
     stream_chat_message,
+)
+from app.services.conversation_service import (
+    ConversationNotFoundError,
+    get_conversation,
+    list_conversations,
+    list_messages,
 )
 
 
@@ -23,6 +31,25 @@ router = APIRouter(
     prefix="/api/chat",
     tags=["AI Assistant"],
 )
+
+
+@router.get("/conversations", response_model=list[ConversationSummary])
+def conversation_list():
+    return list_conversations()
+
+
+@router.get(
+    "/conversations/{conversation_id}",
+    response_model=ConversationMessages,
+)
+def conversation_detail(conversation_id: str):
+    try:
+        return {
+            "conversation": get_conversation(conversation_id),
+            "messages": list_messages(conversation_id),
+        }
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Conversation not found.") from error
 
 
 @router.post("/stream")

@@ -8,8 +8,10 @@ load_dotenv()
 
 client = MongoClient(os.getenv("MONGODB_URI"))
 
-db = client[os.getenv("MONGODB_DB")]
-collection = db[os.getenv("COLLECTION_NAME")]
+db = client[os.getenv("MONGODB_DB", "penny_procurement")]
+collection = db[os.getenv("COLLECTION_NAME", "procurement_records")]
+conversations = db["conversations"]
+messages = db["messages"]
 
 
 collection.create_index("order_key")
@@ -26,6 +28,13 @@ collection.create_index("supplier_name")
 collection.create_index("department_name")
 
 collection.create_index("item_name")
+
+conversations.create_index("updated_at")
+messages.create_index([("conversation_id", 1), ("created_at", 1)])
+messages.create_index(
+    [("conversation_id", 1), ("turn_id", 1), ("role", 1)],
+    unique=True,
+)
 
 
 print("MongoDB indexes created successfully.")
