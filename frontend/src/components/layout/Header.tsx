@@ -30,14 +30,14 @@ export function Header({ onMenuClick }: { onMenuClick: () => void }) {
         <h1 className="truncate text-xl font-bold tracking-[-0.025em] text-slate-950">{meta.title}</h1>
         <p className="mt-1 hidden truncate text-xs text-slate-500 sm:block">{meta.subtitle}</p>
       </div>
-      <div className="ml-5 hidden h-11 max-w-[450px] flex-1 items-center gap-3 rounded-lg border border-slate-200 px-3 text-xs text-slate-500 shadow-sm xl:flex">
+      <div className={`ml-5 h-11 max-w-[450px] flex-1 items-center gap-3 rounded-lg border border-slate-200 px-3 text-xs text-slate-500 shadow-sm ${pathname === '/assistant' ? 'hidden' : 'hidden xl:flex'}`}>
         <Search className="h-5 w-5" />
         <input aria-label="Global search" className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-slate-500" placeholder={pathname === '/suppliers' ? 'Search suppliers, categories, spend...' : 'Search orders, suppliers, items, departments...'} />
         <kbd className="rounded bg-slate-50 px-2 py-1 text-[10px] font-medium">⌘ K</kbd>
       </div>
       
       
-      <div className="ml-3 flex items-center gap-3 border-l border-slate-100 pl-4">
+      <div className={`ml-3 flex items-center gap-3 border-l border-slate-100 pl-4 ${pathname === '/assistant' ? 'xl:w-[270px]' : ''}`}>
         <Avatar name={person} size="lg" color={pathname === '/assistant' ? '#1f619e' : '#1f619e'} />
         <div className="hidden min-w-0 xl:block">
           <p className="truncate text-xs font-bold text-slate-900">{person}</p>
