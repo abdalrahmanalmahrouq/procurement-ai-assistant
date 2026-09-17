@@ -1,6 +1,7 @@
 from typing import Any, TypedDict
 
 from app.ai.models.route_model import RouteCategory
+from app.ai.models.visualization_model import Visualization, VisualizationSelection
 
 
 class ProcurementAgentState(TypedDict, total=False):
@@ -10,6 +11,8 @@ class ProcurementAgentState(TypedDict, total=False):
 
     # Initial intent routing
     route_category: RouteCategory
+    wants_visualization: bool
+    visualization_type: VisualizationSelection
 
     # Previous conversation context
     chat_history: list[dict[str, str]]
@@ -29,7 +32,10 @@ class ProcurementAgentState(TypedDict, total=False):
     result_count: int
 
     execution_error: str | None
-    
+
+    # Optional presentation generated from the query result
+    visualization: Visualization | None
+
     # Final response
     answer: str
 

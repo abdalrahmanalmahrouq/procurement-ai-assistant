@@ -41,6 +41,7 @@ def _message(document: dict[str, Any]) -> dict[str, Any]:
         "pipeline": metadata.get("pipeline"),
         "result_count": metadata.get("result_count", 0),
         "retry_count": metadata.get("retry_count", 0),
+        "visualization": metadata.get("visualization"),
         "status": metadata.get("status", "complete"),
     }
 
@@ -164,6 +165,7 @@ def finish_turn(
                     "pipeline": response.get("pipeline"),
                     "result_count": response.get("result_count", 0),
                     "retry_count": response.get("retry_count", 0),
+                    "visualization": response.get("visualization"),
                     "status": status,
                 },
             }

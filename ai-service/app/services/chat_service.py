@@ -24,6 +24,8 @@ def initial_state(
         "question": message,
         "chat_history": chat_history or [],
         "route_category": "analytical",
+        "wants_visualization": False,
+        "visualization_type": "none",
         "retry_count": 0,
         "pipeline": [],
         "query_description": "",
@@ -32,8 +34,18 @@ def initial_state(
         "query_result": [],
         "result_count": 0,
         "execution_error": None,
+        "visualization": None,
         "answer": "",
     }
+
+
+def visualization_payload(state: dict[str, Any]) -> dict[str, Any] | None:
+    visualization = state.get("visualization")
+    if visualization is None:
+        return None
+    if isinstance(visualization, dict):
+        return visualization
+    return visualization.model_dump(mode="json")
 
 
 def chat_response(conversation_id: str, state: dict[str, Any]) -> dict[str, Any]:
@@ -46,6 +58,11 @@ def chat_response(conversation_id: str, state: dict[str, Any]) -> dict[str, Any]
         pipeline=state.get("pipeline") if is_analytical else None,
         result_count=state.get("result_count", 0) if is_analytical else 0,
         retry_count=state.get("retry_count", 0) if is_analytical else 0,
+        visualization=(
+            visualization_payload(state)
+            if is_analytical
+            else None
+        ),
     ).model_dump(mode="json")
 
 
@@ -167,7 +184,26 @@ async def stream_chat_message(
                         failed = bool(state.get("execution_error"))
                         yield progress(node, "error" if failed else "complete", "Could not retrieve data" if failed else "Procurement results retrieved")
                         yield progress("generate_answer", "running", "Preparing response")
-                    elif node in ("generate_answer", "validation_failure"):
+                    elif node == "generate_visualization":
+                        yield progress(node, "complete", "Visualization prepared")
+                        if state.get("visualization"):
+                            yield {
+                                "type": "visualization",
+                                "visualization": visualization_payload(state),
+                            }
+                    elif node == "generate_answer":
+                        yield progress("generate_answer", "complete", "Response prepared")
+                        if (
+                            state.get("wants_visualization")
+                            and state.get("query_result")
+                            and not state.get("execution_error")
+                        ):
+                            yield progress(
+                                "generate_visualization",
+                                "running",
+                                "Creating visualization",
+                            )
+                    elif node == "validation_failure":
                         yield progress("generate_answer", "complete", "Response prepared")
                     elif node == "save_conversation":
                         finished = True

@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.ai.models.visualization_model import Visualization
+
 
 class ChatRequest(BaseModel):
     message: str = Field(
@@ -43,6 +45,8 @@ class ChatResponse(BaseModel):
 
     retry_count: int = 0
 
+    visualization: Visualization | None = None
+
 
 class ConversationSummary(BaseModel):
     id: str
@@ -62,6 +66,7 @@ class StoredMessage(BaseModel):
     pipeline: list[dict[str, Any]] | None = None
     result_count: int = 0
     retry_count: int = 0
+    visualization: Visualization | None = None
     status: Literal["pending", "complete", "error"] = "complete"
 
 

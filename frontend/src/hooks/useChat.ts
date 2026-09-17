@@ -15,10 +15,13 @@ function applyEvent(turn: ChatTurn, event: ChatEvent): ChatTurn {
       return { ...turn, pipeline: event.pipeline, queryDescription: event.query_description, retryCount: event.retry_count, queryGeneratedAt: new Date().toISOString() };
     case 'answer_delta':
       return { ...turn, answer: turn.answer + event.text };
+    case 'visualization':
+      return { ...turn, visualization: event.visualization };
     case 'done':
       return {
         ...turn, status: 'complete', answer: event.answer, pipeline: event.pipeline,
         queryDescription: event.query_description, resultCount: event.result_count, retryCount: event.retry_count,
+        visualization: event.visualization,
       };
     default:
       return turn;
@@ -41,6 +44,7 @@ function messagesToTurns(messages: StoredMessage[]): ChatTurn[] {
         pipeline: null,
         queryDescription: null,
         retryCount: 0,
+        visualization: null,
         error: failed ? 'The previous assistant response did not finish. Please try again.' : undefined,
       });
       continue;
@@ -59,6 +63,7 @@ function messagesToTurns(messages: StoredMessage[]): ChatTurn[] {
         queryGeneratedAt: message.pipeline ? message.created_at : undefined,
         resultCount: message.result_count,
         retryCount: message.retry_count,
+        visualization: message.visualization,
       });
     }
   }
@@ -132,6 +137,7 @@ export function useChat() {
     const turn: ChatTurn = {
       id: retryId ?? crypto.randomUUID(), question, createdAt: new Date().toISOString(),
       answer: '', status: 'streaming', progress: [], pipeline: null, queryDescription: null, retryCount: 0,
+      visualization: null,
     };
     setTurns((current) => retryId ? current.map((item) => item.id === retryId ? turn : item) : [...current, turn]);
     setIsStreaming(true);

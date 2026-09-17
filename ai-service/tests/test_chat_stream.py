@@ -14,6 +14,7 @@ from pymongo.errors import OperationFailure
 # MongoClient otherwise performs Atlas DNS resolution at import time.
 with patch("pymongo.MongoClient"):
     from app.ai.agent.graph import procurement_graph
+    from app.ai.models.visualization_model import Visualization, VisualizationDatum
     from app.models.chat import ChatRequest
     from app.routers.chat import router
     from app.services.chat_service import process_chat_message, stream_chat_message
@@ -23,13 +24,23 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.route = MagicMock()
         self.route.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
-            route="analytical"
+            route="analytical",
         )
         self.query = MagicMock()
         self.query.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
             pipeline_json='[{"$count": "count"}]', description="Count procurement line records."
         )
         self.answer = FakeListChatModel(responses=["There are **3** line records."])
+        self.visualization = MagicMock()
+        self.visualization.with_structured_output.return_value.invoke.return_value = Visualization(
+            type="bar",
+            title="Records",
+            subtitle="",
+            x_axis_label="",
+            y_axis_label="Records",
+            value_format="number",
+            data=[VisualizationDatum(label="All records", value=3)],
+        )
         self.collection = MagicMock()
         self.collection.aggregate.return_value = [{"count": 3}]
         for target, value in [
@@ -37,6 +48,7 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
             ("app.ai.nodes.generate_query.get_llm", self.query),
             ("app.ai.nodes.correct_query.get_llm", self.query),
             ("app.ai.nodes.generate_answer.get_llm", self.answer),
+            ("app.ai.nodes.generate_visualization.get_llm", self.visualization),
         ]:
             patcher = patch(target, return_value=value)
             patcher.start()
@@ -84,7 +96,7 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
         for category, expected_phrase in expected_phrases.items():
             with self.subTest(category=category):
                 self.route.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
-                    route=category
+                    route=category,
                 )
                 events = await self.collect(category)
                 self.assertEqual(events[-1]["type"], "done")
@@ -99,6 +111,27 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
 
         self.query.with_structured_output.return_value.invoke.assert_not_called()
         self.collection.aggregate.assert_not_called()
+
+    async def test_requested_visualization_is_generated_after_query_execution(self):
+        self.route.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
+            route="analytical",
+        )
+
+        events = await self.collect("Visualize the record count as a bar chart")
+
+        visualization_event = next(
+            event for event in events if event["type"] == "visualization"
+        )
+        self.assertEqual(visualization_event["visualization"]["type"], "bar")
+        self.assertEqual(visualization_event["visualization"]["data"][0]["value"], 3.0)
+        self.assertEqual(events[-1]["visualization"], visualization_event["visualization"])
+        execute_index = next(
+            index
+            for index, event in enumerate(events)
+            if event.get("step") == "execute_query" and event.get("status") == "complete"
+        )
+        visualization_index = events.index(visualization_event)
+        self.assertLess(execute_index, visualization_index)
 
     async def test_validation_failure_after_success_does_not_reuse_results(self):
         first = await self.collect()
@@ -188,6 +221,7 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["answer"], "There are **3** line records.")
         self.assertEqual(result["result_count"], 1)
         self.assertEqual(result["pipeline"], [{"$count": "count"}])
+        self.assertIsNone(result["visualization"])
 
     def test_http_stream_and_input_validation(self):
         app = FastAPI()

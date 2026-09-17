@@ -38,6 +38,15 @@ class ConversationServiceTests(unittest.TestCase):
                 "query_description": "Ranks departments.",
                 "result_count": 1,
                 "retry_count": 0,
+                "visualization": {
+                    "type": "metric",
+                    "title": "Top department",
+                    "subtitle": "",
+                    "x_axis_label": "",
+                    "y_axis_label": "",
+                    "value_format": "currency",
+                    "data": [{"label": "Public Works", "value": 100}],
+                },
             },
         )
 
@@ -60,6 +69,9 @@ class ConversationServiceTests(unittest.TestCase):
         self.assertEqual(user_document["conversation_id"], "conversation-1")
         self.assertEqual(user_document["turn_id"], assistant_document["turn_id"])
         self.assertEqual(assistant_document["metadata"]["pipeline"], [{"$limit": 1}])
+        self.assertEqual(
+            assistant_document["metadata"]["visualization"]["type"], "metric"
+        )
         self.assertEqual(assistant_document["metadata"]["status"], "complete")
 
     def test_load_history_returns_recent_messages_in_chronological_order(self):

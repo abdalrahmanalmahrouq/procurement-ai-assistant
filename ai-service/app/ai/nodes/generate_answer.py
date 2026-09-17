@@ -1,4 +1,5 @@
 import json
+import re
 
 from langchain_core.messages import (
     HumanMessage,
@@ -10,15 +11,80 @@ from app.ai.agent.state import (
 )
 
 from app.ai.llm import get_llm
+from app.ai.models.visualization_model import VisualizationSelection
 
 from app.ai.prompts.answer_prompt import (
     ANSWER_GENERATION_SYSTEM_PROMPT,
 )
 
 
+VISUALIZATION_TERMS = (
+    "chart",
+    "graph",
+    "plot",
+    "visualize",
+    "visualise",
+    "visualization",
+    "visualisation",
+    "metric card",
+    "kpi",
+)
+
+NAMED_VISUALIZATION_TYPES = (
+    ("bar", ("bar chart", "bar graph", "column chart")),
+    ("line", ("line chart", "line graph")),
+    ("area", ("area chart", "area graph")),
+    ("pie", ("pie chart", "pie graph")),
+    ("donut", ("donut chart", "doughnut chart")),
+    ("metric", ("metric card", "kpi card", "kpi")),
+)
+
+
+def _contains_term(text: str, terms: tuple[str, ...]) -> bool:
+    return any(
+        re.search(rf"\b{re.escape(term)}\b", text)
+        for term in terms
+    )
+
+
+def requested_visualization_type(question: str) -> VisualizationSelection:
+    """Detect an explicit visualization request and choose its template."""
+    question = question.lower()
+    if not _contains_term(question, VISUALIZATION_TERMS):
+        return "none"
+
+    for visualization_type, phrases in NAMED_VISUALIZATION_TYPES:
+        if any(phrase in question for phrase in phrases):
+            return visualization_type
+
+    if _contains_term(question, ("cumulative", "running total")):
+        return "area"
+    if _contains_term(
+        question,
+        ("trend", "timeline", "year", "quarter", "month", "date"),
+    ):
+        return "line"
+    if _contains_term(
+        question,
+        ("share", "breakdown", "proportion", "percentage", "distribution"),
+    ):
+        return "donut"
+    if _contains_term(question, ("total", "count", "number", "metric", "kpi")):
+        return "metric"
+
+    return "bar"
+
+
 def generate_answer(
     state: ProcurementAgentState
 ) -> ProcurementAgentState:
+
+    visualization_type = requested_visualization_type(state["question"])
+    answer_state = {
+        **state,
+        "wants_visualization": visualization_type != "none",
+        "visualization_type": visualization_type,
+    }
 
     # ----------------------------------
     # Handle execution failures
@@ -27,7 +93,7 @@ def generate_answer(
     if state.get("execution_error"):
 
         return {
-            **state,
+            **answer_state,
             "answer": (
                 "I was unable to retrieve the "
                 "procurement data needed to answer "
@@ -54,7 +120,7 @@ def generate_answer(
     if not query_result:
 
         return {
-            **state,
+            **answer_state,
             "answer": (
                 "No matching procurement records "
                 "were found for that query."
@@ -97,6 +163,6 @@ the result above.
     )
 
     return {
-        **state,
+        **answer_state,
         "answer": response.content
     }

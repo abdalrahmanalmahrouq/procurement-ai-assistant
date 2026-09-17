@@ -10,13 +10,18 @@ const { outputText } = ts.transpileModule(source, { compilerOptions: { target: t
 const { consumeChatStream, fetchConversation, fetchConversations, streamChat } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 const encode = (value) => new TextEncoder().encode(value);
 const frame = (event) => `data: ${JSON.stringify(event)}\n\n`;
-const done = { type: 'done', conversation_id: 'thread-1', answer: 'Hello', pipeline: [], query_description: '', result_count: 0, retry_count: 0 };
+const done = { type: 'done', conversation_id: 'thread-1', answer: 'Hello', pipeline: [], query_description: '', result_count: 0, retry_count: 0, visualization: null };
 function stream(chunks) {
   return new ReadableStream({ start(controller) { chunks.forEach((chunk) => controller.enqueue(chunk)); controller.close(); } });
 }
 
 test('handles one-byte chunks, UTF-8, CRLF, heartbeats, and multiple events', async () => {
-  const expected = [{ type: 'start', conversation_id: 'thread-1' }, { type: 'answer_delta', text: 'Hello 🌍 مرحبا' }, done];
+  const expected = [
+    { type: 'start', conversation_id: 'thread-1' },
+    { type: 'visualization', visualization: { type: 'metric', title: 'Total', subtitle: '', x_axis_label: '', y_axis_label: '', value_format: 'number', data: [{ label: 'Orders', value: 3 }] } },
+    { type: 'answer_delta', text: 'Hello 🌍 مرحبا' },
+    done,
+  ];
   const bytes = encode((': keep-alive\n\n' + expected.map(frame).join('')).replaceAll('\n', '\r\n'));
   const received = [];
   await consumeChatStream(stream(Array.from(bytes, (byte) => new Uint8Array([byte]))), (event) => received.push(event));

@@ -37,6 +37,10 @@ from app.ai.nodes.generate_answer import (
     generate_answer,
 )
 
+from app.ai.nodes.generate_visualization import (
+    generate_visualization,
+)
+
 from app.ai.nodes.correct_query import (
     correct_query,
 )
@@ -80,6 +84,20 @@ def route_after_validation(
 
     # Too many failed attempts
     return "failed"
+
+
+def route_after_answer(
+    state: ProcurementAgentState,
+) -> str:
+    if (
+        state.get("wants_visualization", False)
+        and state.get("query_result")
+        and not state.get("execution_error")
+    ):
+        return "visualize"
+
+    return "save"
+
 
 def build_procurement_graph():
 
@@ -129,6 +147,11 @@ def build_procurement_graph():
     builder.add_node(
         "generate_answer",
         generate_answer,
+    )
+
+    builder.add_node(
+        "generate_visualization",
+        generate_visualization,
     )
 
     builder.add_node(
@@ -187,14 +210,24 @@ def build_procurement_graph():
         "validate_query",
     )
 
-    # Successful execution
     builder.add_edge(
         "execute_query",
         "generate_answer",
     )
 
-    builder.add_edge(
+    # Answer generation owns the presentation decision. Visual requests
+    # continue to the optional JSON node; ordinary answers are saved directly.
+    builder.add_conditional_edges(
         "generate_answer",
+        route_after_answer,
+        {
+            "visualize": "generate_visualization",
+            "save": "save_conversation",
+        },
+    )
+
+    builder.add_edge(
+        "generate_visualization",
         "save_conversation",
     )
 

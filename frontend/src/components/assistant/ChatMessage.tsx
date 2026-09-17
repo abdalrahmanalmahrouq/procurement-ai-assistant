@@ -17,6 +17,7 @@ import {
   WandSparkles,
 } from 'lucide-react';
 import type { ChatTurn, Pipeline } from '../../types/chat';
+import { Visualization } from './Visualization';
 
 const formatTime = (value: string) => new Date(value).toLocaleTimeString([], {
   hour: 'numeric',
@@ -184,6 +185,7 @@ export function ChatMessage({ turn, onRetry, canRetry }: {
             </div>
           )}
           {turn.answer && <AnswerText text={turn.answer} />}
+          {turn.visualization && <Visualization visualization={turn.visualization} />}
           {turn.pipeline !== null && <QueryPanel key={`${turn.queryGeneratedAt}-${streaming}`} turn={turn} verified={queryVerified} />}
           {turn.error && (
             <div role="alert" className="mt-4 rounded-lg border border-rose-100 bg-rose-50 p-3 text-sm text-rose-700">
