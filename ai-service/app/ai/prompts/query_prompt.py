@@ -174,5 +174,7 @@ Sort ascending when asking for:
 
 Do not invent fields that are not in the schema.
 
-Return only a pipeline that answers the user's question.
+Return the pipeline in the `pipeline_json` field as a valid JSON-encoded array.
+Preserve every MongoDB operator name, including its leading `$`, inside that
+JSON string. Return only a pipeline that answers the user's question.
 """

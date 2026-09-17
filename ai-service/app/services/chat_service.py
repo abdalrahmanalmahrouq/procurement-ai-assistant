@@ -1,5 +1,6 @@
 """Chat responses and public progress events from the existing agent graph."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import aclosing
@@ -8,9 +9,10 @@ from uuid import uuid4
 
 from app.ai.agent.graph import MAX_QUERY_RETRIES, procurement_graph
 from app.models.chat import ChatResponse
-from app.services.conversation_service import load_chat_history, save_turn
+from app.services.conversation_service import finish_turn, load_chat_history, start_turn
 
 logger = logging.getLogger(__name__)
+PUBLIC_FAILURE_MESSAGE = "The assistant could not finish this response. Please try again."
 
 
 def initial_state(
@@ -51,18 +53,35 @@ def process_chat_message(message: str, conversation_id: str | None = None):
     existing_conversation_id = conversation_id
     conversation_id = conversation_id or str(uuid4())
     turn_id = str(uuid4())
-    result = procurement_graph.invoke(
-        initial_state(message, load_chat_history(existing_conversation_id)),
-        config={"configurable": {"thread_id": conversation_id}},
-    )
-    response = chat_response(conversation_id, result)
-    save_turn(
+    state = initial_state(message, load_chat_history(existing_conversation_id))
+    start_turn(
         conversation_id=conversation_id,
         turn_id=turn_id,
         question=message,
-        response=response,
     )
-    return response
+    try:
+        result = procurement_graph.invoke(
+            state,
+            config={"configurable": {"thread_id": conversation_id}},
+        )
+        response = chat_response(conversation_id, result)
+        finish_turn(
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            response=response,
+        )
+        return response
+    except Exception:
+        finish_turn(
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            response=chat_response(
+                conversation_id,
+                {**state, "answer": PUBLIC_FAILURE_MESSAGE},
+            ),
+            status="error",
+        )
+        raise
 
 
 def progress(step: str, status: str, label: str) -> dict[str, Any]:
@@ -78,11 +97,19 @@ async def stream_chat_message(
     turn_id = str(uuid4())
     state = initial_state(message)
     finished = False
-    yield {"type": "start", "conversation_id": conversation_id}
-    yield progress("route_question", "running", "Understanding your request")
+    persisted = False
+    started = False
 
     try:
         state = initial_state(message, load_chat_history(existing_conversation_id))
+        start_turn(
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            question=message,
+        )
+        started = True
+        yield {"type": "start", "conversation_id": conversation_id}
+        yield progress("route_question", "running", "Understanding your request")
         async with aclosing(procurement_graph.astream(
             state,
             config={"configurable": {"thread_id": conversation_id}},
@@ -149,16 +176,45 @@ async def stream_chat_message(
         if not finished:
             raise RuntimeError("The agent ended without saving the conversation.")
         response = chat_response(conversation_id, state)
-        save_turn(
+        finish_turn(
             conversation_id=conversation_id,
             turn_id=turn_id,
-            question=message,
             response=response,
         )
+        persisted = True
         yield {"type": "done", **response}
+    except asyncio.CancelledError:
+        raise
     except Exception:
         logger.exception("AI assistant stream failed")
+        try:
+            finish_turn(
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+                response=chat_response(
+                    conversation_id,
+                    {**state, "answer": PUBLIC_FAILURE_MESSAGE},
+                ),
+                status="error",
+            )
+            persisted = True
+        except Exception:
+            logger.exception("Could not persist failed AI assistant turn")
         yield {
             "type": "error",
-            "message": "The assistant could not finish this response. Please try again.",
+            "message": PUBLIC_FAILURE_MESSAGE,
         }
+    finally:
+        if started and not persisted:
+            try:
+                finish_turn(
+                    conversation_id=conversation_id,
+                    turn_id=turn_id,
+                    response=chat_response(
+                        conversation_id,
+                        {**state, "answer": PUBLIC_FAILURE_MESSAGE},
+                    ),
+                    status="error",
+                )
+            except Exception:
+                logger.exception("Could not persist failed AI assistant turn")

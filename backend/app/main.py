@@ -5,9 +5,10 @@ from app.routers.procurement import router as procurement_router
 from app.routers.orders import router as orders_router
 from app.routers.suppliers import router as suppliers_router
 from app.routers.departments import router as departments_router
-from app.routers.chat import router as chat_router
+
+
 app = FastAPI(
-    title="Penny Procurement AI API"
+    title="Penny Procurement Analytics API"
 )
 
 
@@ -31,4 +32,3 @@ app.include_router(procurement_router)
 app.include_router(orders_router)
 app.include_router(suppliers_router)
 app.include_router(departments_router)
-app.include_router(chat_router)

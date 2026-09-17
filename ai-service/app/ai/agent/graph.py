@@ -49,7 +49,7 @@ from app.ai.nodes.save_conversation import (
     save_conversation,
 )
 
-MAX_QUERY_RETRIES = 2
+MAX_QUERY_RETRIES = 1
 checkpointer = InMemorySaver()
 
 

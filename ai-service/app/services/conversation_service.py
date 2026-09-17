@@ -41,6 +41,7 @@ def _message(document: dict[str, Any]) -> dict[str, Any]:
         "pipeline": metadata.get("pipeline"),
         "result_count": metadata.get("result_count", 0),
         "retry_count": metadata.get("retry_count", 0),
+        "status": metadata.get("status", "complete"),
     }
 
 
@@ -77,7 +78,13 @@ def load_chat_history(conversation_id: str | None) -> list[dict[str, str]]:
     # stored message for display in the UI.
     documents = list(
         messages_collection.find(
-            {"conversation_id": conversation_id},
+            {
+                "conversation_id": conversation_id,
+                "$or": [
+                    {"metadata.status": {"$exists": False}},
+                    {"metadata.status": "complete"},
+                ],
+            },
             {"role": 1, "content": 1},
         )
         .sort([("created_at", -1), ("_id", -1)])
@@ -90,13 +97,13 @@ def load_chat_history(conversation_id: str | None) -> list[dict[str, str]]:
     ]
 
 
-def save_turn(
+def start_turn(
     *,
     conversation_id: str,
     turn_id: str,
     question: str,
-    response: dict[str, Any],
 ) -> None:
+    """Persist the user message before slow model and database work begins."""
     now = datetime.now(timezone.utc)
     conversations_collection.update_one(
         {"_id": conversation_id},
@@ -119,14 +126,34 @@ def save_turn(
                 "role": "user",
                 "content": question,
                 "created_at": now,
+                "metadata": {"status": "pending"},
             }
         },
         upsert=True,
     )
+
+
+def finish_turn(
+    *,
+    conversation_id: str,
+    turn_id: str,
+    response: dict[str, Any],
+    status: str = "complete",
+) -> None:
+    """Finalize a previously started turn as successful or failed."""
+    now = datetime.now(timezone.utc)
+    conversations_collection.update_one(
+        {"_id": conversation_id},
+        {"$set": {"updated_at": now}},
+    )
+    messages_collection.update_one(
+        {"conversation_id": conversation_id, "turn_id": turn_id, "role": "user"},
+        {"$set": {"metadata.status": status}},
+    )
     messages_collection.update_one(
         {"conversation_id": conversation_id, "turn_id": turn_id, "role": "assistant"},
         {
-            "$setOnInsert": {
+            "$set": {
                 "conversation_id": conversation_id,
                 "turn_id": turn_id,
                 "role": "assistant",
@@ -137,8 +164,29 @@ def save_turn(
                     "pipeline": response.get("pipeline"),
                     "result_count": response.get("result_count", 0),
                     "retry_count": response.get("retry_count", 0),
+                    "status": status,
                 },
             }
         },
         upsert=True,
+    )
+
+
+def save_turn(
+    *,
+    conversation_id: str,
+    turn_id: str,
+    question: str,
+    response: dict[str, Any],
+) -> None:
+    """Compatibility helper for callers that complete a turn synchronously."""
+    start_turn(
+        conversation_id=conversation_id,
+        turn_id=turn_id,
+        question=question,
+    )
+    finish_turn(
+        conversation_id=conversation_id,
+        turn_id=turn_id,
+        response=response,
     )

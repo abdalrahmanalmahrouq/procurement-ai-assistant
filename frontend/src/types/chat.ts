@@ -58,6 +58,7 @@ export interface StoredMessage {
   pipeline: Pipeline | null;
   result_count: number;
   retry_count: number;
+  status: 'pending' | 'complete' | 'error';
 }
 
 export interface ConversationMessages {

@@ -20,6 +20,27 @@ services:
       retries: 5
       start_period: 10s
 
+  ai-service:
+    build:
+      context: ./ai-service
+    env_file:
+      - ./.env
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./ai-service:/app
+    init: true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8001/', timeout=2)
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
   frontend:
     build:
       context: ./frontend
@@ -27,6 +48,7 @@ services:
       # This value is used by code running in the browser, so it must be a URL
       # reachable from the host browser rather than a Docker-only service name.
       VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+      VITE_AI_API_URL: ${VITE_AI_API_URL:-http://localhost:8001}
       CHOKIDAR_USEPOLLING: "true"
     ports:
       - "5173:5173"
@@ -35,6 +57,8 @@ services:
       - frontend_node_modules:/app/node_modules
     depends_on:
       backend:
+        condition: service_healthy
+      ai-service:
         condition: service_healthy
     init: true
 

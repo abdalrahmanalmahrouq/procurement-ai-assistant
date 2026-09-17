@@ -1,9 +1,9 @@
 import type { ChatEvent, ConversationMessages, ConversationSummary } from '../types/chat';
 
-const API_URL = import.meta.env.VITE_API_URL ?? '';
+const AI_API_URL = import.meta.env.VITE_AI_API_URL ?? '';
 
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, { signal });
+  const response = await fetch(`${AI_API_URL}${path}`, { signal });
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { detail?: unknown } | null;
     throw new Error(typeof body?.detail === 'string' ? body.detail : `The request failed (${response.status}).`);
@@ -68,7 +68,7 @@ export async function streamChat(
   onEvent: (event: ChatEvent) => void,
   signal: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${API_URL}/api/chat/stream`, {
+  const response = await fetch(`${AI_API_URL}/api/chat/stream`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
     body: JSON.stringify({ message, conversation_id: conversationId }),
@@ -79,7 +79,7 @@ export async function streamChat(
     throw new Error(typeof body?.detail === 'string' ? body.detail : `The assistant request failed (${response.status}). Please try again.`);
   }
   if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) {
-    throw new Error('The server did not return a chat stream. Please check that the backend is running.');
+    throw new Error('The server did not return a chat stream. Please check that the AI service is running.');
   }
   await consumeChatStream(response.body, onEvent);
 }

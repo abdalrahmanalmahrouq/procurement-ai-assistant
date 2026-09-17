@@ -30,25 +30,30 @@ function messagesToTurns(messages: StoredMessage[]): ChatTurn[] {
 
   for (const message of messages) {
     if (message.role === 'user') {
+      const failed = message.status === 'error' || message.status === 'pending';
       turns.set(message.turn_id, {
         id: message.turn_id,
         question: message.content,
         createdAt: message.created_at,
         answer: '',
-        status: 'complete',
+        status: failed ? 'error' : 'complete',
         progress: [],
         pipeline: null,
         queryDescription: null,
         retryCount: 0,
+        error: failed ? 'The previous assistant response did not finish. Please try again.' : undefined,
       });
       continue;
     }
 
     const turn = turns.get(message.turn_id);
     if (turn) {
+      const failed = message.status === 'error';
       turns.set(message.turn_id, {
         ...turn,
-        answer: message.content,
+        answer: failed ? '' : message.content,
+        status: failed ? 'error' : 'complete',
+        error: failed ? message.content : undefined,
         pipeline: message.pipeline,
         queryDescription: message.query_description,
         queryGeneratedAt: message.pipeline ? message.created_at : undefined,
@@ -139,9 +144,9 @@ export function useChat() {
     try {
       await streamChat(question, conversationId.current, (event) => {
         if (activeRequest.current !== controller) return;
-        // The server persists the turn before "done". Do not adopt a new ID
-        // earlier, or a failed first request would point at an unsaved chat.
-        if (event.type === 'done') {
+        // The server persists the user message before emitting "start", so the
+        // conversation remains valid even if later analytical work fails.
+        if (event.type === 'start' || event.type === 'done') {
           conversationId.current = event.conversation_id;
           setActiveConversationId(event.conversation_id);
         }
@@ -153,6 +158,7 @@ export function useChat() {
       const message = timedOut ? 'This request took too long. Please try again.'
         : error instanceof Error ? error.message : 'Unable to connect to the assistant. Please try again.';
       setTurns((current) => current.map((item) => item.id === turn.id ? { ...item, status: 'error', error: message } : item));
+      if (conversationId.current) void refreshConversations();
     } finally {
       window.clearTimeout(timeout);
       if (activeRequest.current === controller) {

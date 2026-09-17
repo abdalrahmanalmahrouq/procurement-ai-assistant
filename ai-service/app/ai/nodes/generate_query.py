@@ -6,7 +6,7 @@ from langchain_core.messages import (
 
 from app.ai.agent.state import ProcurementAgentState
 from app.ai.llm import get_llm
-from app.ai.models.query_model import MongoQuery
+from app.ai.models.query_model import MongoQuery, parse_pipeline
 from app.ai.prompts.query_prompt import (
     QUERY_GENERATION_SYSTEM_PROMPT,
 )
@@ -40,7 +40,9 @@ def generate_query(
     llm = get_llm()
 
     structured_llm = llm.with_structured_output(
-        MongoQuery
+        MongoQuery,
+        method="function_calling",
+        strict=True,
     )
 
     question = state["question"]
@@ -72,8 +74,15 @@ def generate_query(
         messages
     )
 
+    try:
+        pipeline = parse_pipeline(result.pipeline_json)
+    except ValueError:
+        # Let the deterministic validator route malformed model output through
+        # the normal correction path instead of crashing the whole request.
+        pipeline = []
+
     return {
         **state,
-        "pipeline": result.pipeline,
+        "pipeline": pipeline,
         "query_description": result.description,
     }

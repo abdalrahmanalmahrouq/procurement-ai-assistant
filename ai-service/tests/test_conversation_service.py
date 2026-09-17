@@ -41,23 +41,26 @@ class ConversationServiceTests(unittest.TestCase):
             },
         )
 
-        conversation_update = self.conversations.update_one.call_args.args[1]
+        conversation_update = self.conversations.update_one.call_args_list[0].args[1]
         self.assertEqual(
             conversation_update["$setOnInsert"]["title"],
             "Which department spent the most?",
         )
-        self.assertTrue(self.conversations.update_one.call_args.kwargs["upsert"])
-        self.assertEqual(self.messages.update_one.call_count, 2)
+        self.assertTrue(
+            self.conversations.update_one.call_args_list[0].kwargs["upsert"]
+        )
+        self.assertEqual(self.messages.update_one.call_count, 3)
 
         user_document = self.messages.update_one.call_args_list[0].args[1][
             "$setOnInsert"
         ]
-        assistant_document = self.messages.update_one.call_args_list[1].args[1][
-            "$setOnInsert"
+        assistant_document = self.messages.update_one.call_args_list[2].args[1][
+            "$set"
         ]
         self.assertEqual(user_document["conversation_id"], "conversation-1")
         self.assertEqual(user_document["turn_id"], assistant_document["turn_id"])
         self.assertEqual(assistant_document["metadata"]["pipeline"], [{"$limit": 1}])
+        self.assertEqual(assistant_document["metadata"]["status"], "complete")
 
     def test_load_history_returns_recent_messages_in_chronological_order(self):
         self.conversations.find_one.return_value = {

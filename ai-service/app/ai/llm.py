@@ -20,6 +20,9 @@ def get_llm() -> ChatOpenAI:
         model=os.getenv("OPENROUTER_MODEL"),
         api_key=os.getenv("OPENROUTER_API_KEY"),
         base_url=os.getenv("OPENROUTER_BASE_URL"),
-        max_retries=2,
+        # The graph can make several model calls for one analytical question.
+        # Retrying every call here can exceed the browser's request deadline;
+        # graph-level query correction remains the controlled retry mechanism.
+        max_retries=0,
         timeout=30,
     )

@@ -1,0 +1,1 @@
+"""Penny Procurement AI service."""

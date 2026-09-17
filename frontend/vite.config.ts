@@ -9,6 +9,10 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       proxy: {
+        '/api/chat': {
+          target: env.VITE_AI_API_PROXY_TARGET || 'http://localhost:8001',
+          changeOrigin: true,
+        },
         '/api': {
           target: env.VITE_API_PROXY_TARGET || 'http://localhost:8000',
           changeOrigin: true,

@@ -27,7 +27,11 @@ def route_question(
 
     result = (
         get_llm()
-        .with_structured_output(RouteDecision)
+        .with_structured_output(
+            RouteDecision,
+            method="function_calling",
+            strict=True,
+        )
         .invoke(messages)
     )
 

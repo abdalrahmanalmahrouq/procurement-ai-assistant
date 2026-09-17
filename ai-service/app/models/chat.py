@@ -62,6 +62,7 @@ class StoredMessage(BaseModel):
     pipeline: list[dict[str, Any]] | None = None
     result_count: int = 0
     retry_count: int = 0
+    status: Literal["pending", "complete", "error"] = "complete"
 
 
 class ConversationMessages(BaseModel):

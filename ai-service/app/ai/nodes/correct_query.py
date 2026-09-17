@@ -13,6 +13,7 @@ from app.ai.llm import get_llm
 
 from app.ai.models.query_model import (
     MongoQuery,
+    parse_pipeline,
 )
 
 from app.ai.prompts.query_prompt import (
@@ -27,7 +28,9 @@ def correct_query(
     llm = get_llm()
 
     structured_llm = llm.with_structured_output(
-        MongoQuery
+        MongoQuery,
+        method="function_calling",
+        strict=True,
     )
 
     question = state["question"]
@@ -83,11 +86,16 @@ Important:
         ]
     )
 
+    try:
+        pipeline = parse_pipeline(result.pipeline_json)
+    except ValueError:
+        pipeline = []
+
     return {
         **state,
 
         "pipeline":
-            result.pipeline,
+            pipeline,
 
         "query_description":
             result.description,

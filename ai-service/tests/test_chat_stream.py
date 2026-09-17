@@ -27,7 +27,7 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
         )
         self.query = MagicMock()
         self.query.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
-            pipeline=[{"$count": "count"}], description="Count procurement line records."
+            pipeline_json='[{"$count": "count"}]', description="Count procurement line records."
         )
         self.answer = FakeListChatModel(responses=["There are **3** line records."])
         self.collection = MagicMock()
@@ -103,14 +103,14 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_validation_failure_after_success_does_not_reuse_results(self):
         first = await self.collect()
         self.query.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
-            pipeline=[{"$out": "forbidden"}], description="Invalid query"
+            pipeline_json='[{"$out": "forbidden"}]', description="Invalid query"
         )
         events = await self.collect("Another question", first[0]["conversation_id"])
-        self.assertEqual(events[-1]["retry_count"], 2)
+        self.assertEqual(events[-1]["retry_count"], 1)
         self.assertEqual(events[-1]["result_count"], 0)
         self.assertIn("couldn't generate a valid", events[-1]["answer"])
         self.collection.aggregate.assert_called_once()
-        self.assertEqual(len([e for e in events if e["type"] == "query"]), 3)
+        self.assertEqual(len([e for e in events if e["type"] == "query"]), 2)
 
     async def test_execution_error_is_publicly_summarized_and_next_turn_recovers(self):
         self.collection.aggregate.side_effect = OperationFailure("secret database details")
@@ -131,11 +131,14 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_provider_failure_emits_sanitized_error(self):
         self.query.with_structured_output.return_value.invoke.side_effect = RuntimeError("secret provider details")
-        with self.assertLogs("app.services.chat_service", level="ERROR"):
+        with self.assertLogs("app.services.chat_service", level="ERROR"), patch(
+            "app.services.chat_service.finish_turn"
+        ) as finish_turn:
             events = await self.collect()
         self.assertEqual(events[-1]["type"], "error")
         self.assertNotIn("secret provider details", json.dumps(events))
         self.assertFalse(any(e["type"] == "done" for e in events))
+        self.assertEqual(finish_turn.call_args.kwargs["status"], "error")
 
     async def test_raw_state_and_reasoning_are_not_forwarded(self):
         async def fake_stream(*args, **kwargs):

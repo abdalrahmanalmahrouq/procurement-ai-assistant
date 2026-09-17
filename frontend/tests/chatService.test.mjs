@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 // Exercise the production parser without adding a test framework dependency.
 const source = (await readFile(new URL('../src/services/chatService.ts', import.meta.url), 'utf8'))
-  .replace("import.meta.env.VITE_API_URL ?? ''", "''");
+  .replace("import.meta.env.VITE_AI_API_URL ?? ''", "''");
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } });
 const { consumeChatStream, fetchConversation, fetchConversations, streamChat } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 const encode = (value) => new TextEncoder().encode(value);
