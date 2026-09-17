@@ -1,6 +1,26 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchConversation, fetchConversations, streamChat } from '../services/chatService';
 import type { ChatEvent, ChatTurn, ConversationSummary, StoredMessage } from '../types/chat';
+
+const ACTIVE_CONVERSATION_KEY = 'penny.activeConversationId';
+
+function readActiveConversationId(): string | undefined {
+  try {
+    return window.localStorage.getItem(ACTIVE_CONVERSATION_KEY) || undefined;
+  } catch {
+    // The assistant still works when storage is disabled by the browser.
+    return undefined;
+  }
+}
+
+function persistActiveConversationId(id?: string) {
+  try {
+    if (id) window.localStorage.setItem(ACTIVE_CONVERSATION_KEY, id);
+    else window.localStorage.removeItem(ACTIVE_CONVERSATION_KEY);
+  } catch {
+    // Treat storage as an optional enhancement (for example, in private mode).
+  }
+}
 
 function applyEvent(turn: ChatTurn, event: ChatEvent): ChatTurn {
   switch (event.type) {
@@ -72,15 +92,22 @@ function messagesToTurns(messages: StoredMessage[]): ChatTurn[] {
 }
 
 export function useChat() {
+  const [initialConversationId] = useState(readActiveConversationId);
   const [turns, setTurns] = useState<ChatTurn[]>([]);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
-  const [activeConversationId, setActiveConversationId] = useState<string>();
+  const [activeConversationId, setActiveConversationId] = useState<string | undefined>(initialConversationId);
   const [isStreaming, setIsStreaming] = useState(false);
-  const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(Boolean(initialConversationId));
   const [historyError, setHistoryError] = useState<string>();
-  const conversationId = useRef<string | undefined>(undefined);
+  const conversationId = useRef<string | undefined>(initialConversationId);
   const activeRequest = useRef<AbortController | null>(null);
   const historyRequest = useRef<AbortController | null>(null);
+
+  const setCurrentConversation = useCallback((id?: string) => {
+    conversationId.current = id;
+    setActiveConversationId(id);
+    persistActiveConversationId(id);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -89,13 +116,34 @@ export function useChat() {
       .catch((error: unknown) => {
         if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : 'Could not load chat history.');
       });
+
+    const savedConversationId = conversationId.current;
+    if (savedConversationId) {
+      fetchConversation(savedConversationId, controller.signal)
+        .then((result) => {
+          if (controller.signal.aborted) return;
+          setCurrentConversation(result.conversation.id);
+          setTurns(messagesToTurns(result.messages));
+          setHistoryError(undefined);
+        })
+        .catch((error: unknown) => {
+          if (controller.signal.aborted) return;
+          // Do not keep retrying a stale ID on every future page refresh.
+          setCurrentConversation(undefined);
+          setHistoryError(error instanceof Error ? error.message : 'Could not restore the previous conversation.');
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsLoadingMessages(false);
+        });
+    }
+
     return () => {
       controller.abort();
       activeRequest.current?.abort();
       historyRequest.current?.abort();
       activeRequest.current = null;
     };
-  }, []);
+  }, [setCurrentConversation]);
 
   async function refreshConversations() {
     try {
@@ -116,8 +164,7 @@ export function useChat() {
     try {
       const result = await fetchConversation(id, controller.signal);
       if (historyRequest.current !== controller) return;
-      conversationId.current = result.conversation.id;
-      setActiveConversationId(result.conversation.id);
+      setCurrentConversation(result.conversation.id);
       setTurns(messagesToTurns(result.messages));
     } catch (error) {
       if (!controller.signal.aborted) setHistoryError(error instanceof Error ? error.message : 'Could not load this conversation.');
@@ -153,8 +200,7 @@ export function useChat() {
         // The server persists the user message before emitting "start", so the
         // conversation remains valid even if later analytical work fails.
         if (event.type === 'start' || event.type === 'done') {
-          conversationId.current = event.conversation_id;
-          setActiveConversationId(event.conversation_id);
+          setCurrentConversation(event.conversation_id);
         }
         setTurns((current) => current.map((item) => item.id === turn.id ? applyEvent(item, event) : item));
         if (event.type === 'done') void refreshConversations();
@@ -178,8 +224,7 @@ export function useChat() {
     if (activeRequest.current) return;
     historyRequest.current?.abort();
     historyRequest.current = null;
-    conversationId.current = undefined;
-    setActiveConversationId(undefined);
+    setCurrentConversation(undefined);
     setTurns([]);
     setIsLoadingMessages(false);
     setHistoryError(undefined);
