@@ -16,6 +16,17 @@ def route_question(
     """Classify a turn before any query-generation work is performed."""
     messages = [SystemMessage(content=ROUTE_SYSTEM_PROMPT)]
 
+    if state.get("has_contextual_data", False):
+        messages.append(SystemMessage(content=(
+            "A reusable result from the most recent successful procurement "
+            "query is available for contextual_content requests."
+        )))
+    else:
+        messages.append(SystemMessage(content=(
+            "No reusable procurement query result is available. Do not choose "
+            "contextual_content; choose analytical if procurement data is needed."
+        )))
+
     for message in state.get("chat_history", []):
         content = message.get("content", "")
         if message.get("role") == "user":

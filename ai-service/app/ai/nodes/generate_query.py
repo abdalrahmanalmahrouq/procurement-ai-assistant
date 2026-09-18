@@ -85,4 +85,11 @@ def generate_query(
         **state,
         "pipeline": pipeline,
         "query_description": result.description,
+        # A newly requested analysis supersedes the previous result. The
+        # execute node will install fresh reusable context after success.
+        "has_contextual_data": False,
+        "contextual_query_result": [],
+        "contextual_query_description": "",
+        "contextual_pipeline": [],
+        "contextual_result_count": 0,
     }

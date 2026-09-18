@@ -33,6 +33,15 @@ class ProcurementAgentState(TypedDict, total=False):
 
     execution_error: str | None
 
+    # Most recent successfully executed result. These fields are kept
+    # separately so a contextual follow-up can reuse the data without
+    # pretending that it generated or executed a new query.
+    has_contextual_data: bool
+    contextual_query_result: list[dict[str, Any]]
+    contextual_query_description: str
+    contextual_pipeline: list[dict[str, Any]]
+    contextual_result_count: int
+
     # Optional presentation generated from the query result
     visualization: Visualization | None
 

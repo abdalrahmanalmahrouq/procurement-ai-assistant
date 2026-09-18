@@ -31,6 +31,9 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
             pipeline_json='[{"$count": "count"}]', description="Count procurement line records."
         )
         self.answer = FakeListChatModel(responses=["There are **3** line records."])
+        self.contextual = FakeListChatModel(
+            responses=["Here is the previous result as a metric card."]
+        )
         self.visualization = MagicMock()
         self.visualization.with_structured_output.return_value.invoke.return_value = Visualization(
             type="bar",
@@ -48,6 +51,7 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
             ("app.ai.nodes.generate_query.get_llm", self.query),
             ("app.ai.nodes.correct_query.get_llm", self.query),
             ("app.ai.nodes.generate_answer.get_llm", self.answer),
+            ("app.ai.nodes.contextual_content.get_llm", self.contextual),
             ("app.ai.nodes.generate_visualization.get_llm", self.visualization),
         ]:
             patcher = patch(target, return_value=value)
@@ -84,7 +88,10 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([message.type for message in messages], ["system", "human", "ai", "human"])
         self.assertEqual(messages[-1].content, "What about last year?")
         route_messages = self.route.with_structured_output.return_value.invoke.call_args.args[0]
-        self.assertEqual([message.type for message in route_messages], ["system", "human", "ai", "human"])
+        self.assertEqual(
+            [message.type for message in route_messages],
+            ["system", "system", "human", "ai", "human"],
+        )
 
     async def test_direct_routes_skip_query_generation_and_database(self):
         expected_phrases = {
@@ -132,6 +139,52 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
         )
         visualization_index = events.index(visualization_event)
         self.assertLess(execute_index, visualization_index)
+
+    async def test_contextual_visualization_reuses_previous_query_result(self):
+        first = await self.collect("Which department spent the most?")
+        self.route.with_structured_output.return_value.invoke.return_value = SimpleNamespace(
+            route="contextual_content",
+        )
+        self.visualization.with_structured_output.return_value.invoke.return_value = Visualization(
+            type="metric",
+            title="Record count",
+            subtitle="",
+            x_axis_label="",
+            y_axis_label="Records",
+            value_format="number",
+            data=[VisualizationDatum(label="All records", value=3)],
+        )
+
+        with patch(
+            "app.services.chat_service.load_query_context",
+            return_value={
+                "query_result": [{"count": 3}],
+                "query_description": "Count procurement line records.",
+                "pipeline": [{"$count": "count"}],
+                "result_count": 1,
+            },
+        ):
+            events = await self.collect(
+                "Put that information in a metric card",
+                first[0]["conversation_id"],
+            )
+
+        self.assertFalse(any(event["type"] == "query" for event in events))
+        self.assertFalse(any(
+            event.get("step") in ("generate_query", "execute_query")
+            for event in events
+        ))
+        self.assertTrue(any(
+            event.get("step") == "contextual_content"
+            for event in events
+        ))
+        self.assertEqual(events[-1]["visualization"]["type"], "metric")
+        self.assertIsNone(events[-1]["pipeline"])
+        self.assertEqual(
+            self.query.with_structured_output.return_value.invoke.call_count,
+            1,
+        )
+        self.assertEqual(self.collection.aggregate.call_count, 1)
 
     async def test_validation_failure_after_success_does_not_reuse_results(self):
         first = await self.collect()

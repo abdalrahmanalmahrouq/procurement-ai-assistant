@@ -65,6 +65,11 @@ def execute_query(
             "query_result": result,
             "result_count": len(result),
             "execution_error": None,
+            "has_contextual_data": True,
+            "contextual_query_result": result,
+            "contextual_query_description": state.get("query_description", ""),
+            "contextual_pipeline": state.get("pipeline", []),
+            "contextual_result_count": len(result),
         }
 
     except PyMongoError as error:

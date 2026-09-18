@@ -25,6 +25,10 @@ from app.ai.nodes.generate_direct_response import (
     generate_direct_response,
 )
 
+from app.ai.nodes.contextual_content import (
+    contextual_content,
+)
+
 from app.ai.nodes.validate_query import (
     validate_query,
 )
@@ -63,7 +67,11 @@ def route_after_classification(
     if state.get("route_category") == "analytical":
         return "analytical"
 
+    if state.get("route_category") == "contextual_content":
+        return "contextual_content"
+
     return "direct"
+
 
 def route_after_validation(
     state: ProcurementAgentState
@@ -99,6 +107,15 @@ def route_after_answer(
     return "save"
 
 
+def route_after_contextual_content(
+    state: ProcurementAgentState,
+) -> str:
+    if state.get("wants_visualization", False) and state.get("query_result"):
+        return "visualize"
+
+    return "save"
+
+
 def build_procurement_graph():
 
     builder = StateGraph(
@@ -117,6 +134,11 @@ def build_procurement_graph():
     builder.add_node(
         "generate_direct_response",
         generate_direct_response,
+    )
+
+    builder.add_node(
+        "contextual_content",
+        contextual_content,
     )
 
     builder.add_node(
@@ -174,12 +196,22 @@ def build_procurement_graph():
         {
             "direct": "generate_direct_response",
             "analytical": "generate_query",
+            "contextual_content": "contextual_content",
         },
     )
 
     builder.add_edge(
         "generate_direct_response",
         "save_conversation",
+    )
+
+    builder.add_conditional_edges(
+        "contextual_content",
+        route_after_contextual_content,
+        {
+            "visualize": "generate_visualization",
+            "save": "save_conversation",
+        },
     )
 
     builder.add_edge(

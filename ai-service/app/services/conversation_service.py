@@ -98,6 +98,28 @@ def load_chat_history(conversation_id: str | None) -> list[dict[str, str]]:
     ]
 
 
+def load_query_context(conversation_id: str | None) -> dict[str, Any] | None:
+    """Load the latest private query result used by contextual follow-ups."""
+    if conversation_id is None:
+        return None
+
+    document = messages_collection.find_one(
+        {
+            "conversation_id": conversation_id,
+            "role": "assistant",
+            "metadata.status": "complete",
+            "metadata.query_context": {"$exists": True},
+        },
+        {"metadata.query_context": 1},
+        sort=[("created_at", -1), ("_id", -1)],
+    )
+    if not isinstance(document, dict):
+        return None
+
+    context = document.get("metadata", {}).get("query_context")
+    return context if isinstance(context, dict) else None
+
+
 def start_turn(
     *,
     conversation_id: str,
@@ -140,6 +162,7 @@ def finish_turn(
     turn_id: str,
     response: dict[str, Any],
     status: str = "complete",
+    query_context: dict[str, Any] | None = None,
 ) -> None:
     """Finalize a previously started turn as successful or failed."""
     now = datetime.now(timezone.utc)
@@ -147,6 +170,19 @@ def finish_turn(
         {"_id": conversation_id},
         {"$set": {"updated_at": now}},
     )
+    metadata = {
+        "query_description": response.get("query_description"),
+        "pipeline": response.get("pipeline"),
+        "result_count": response.get("result_count", 0),
+        "retry_count": response.get("retry_count", 0),
+        "visualization": response.get("visualization"),
+        "status": status,
+    }
+    # This field is intentionally omitted by _message and all public API
+    # models. A null value also matters: it prevents an older successful result
+    # from being reused after a newer analytical request failed.
+    metadata["query_context"] = query_context
+
     messages_collection.update_one(
         {"conversation_id": conversation_id, "turn_id": turn_id, "role": "user"},
         {"$set": {"metadata.status": status}},
@@ -160,14 +196,7 @@ def finish_turn(
                 "role": "assistant",
                 "content": response["answer"],
                 "created_at": now,
-                "metadata": {
-                    "query_description": response.get("query_description"),
-                    "pipeline": response.get("pipeline"),
-                    "result_count": response.get("result_count", 0),
-                    "retry_count": response.get("retry_count", 0),
-                    "visualization": response.get("visualization"),
-                    "status": status,
-                },
+                "metadata": metadata,
             }
         },
         upsert=True,

@@ -17,7 +17,7 @@ export interface Visualization {
   data: VisualizationDatum[];
 }
 
-export type ChatStep = 'route_question' | 'generate_direct_response' | 'generate_query' | 'validate_query' | 'correct_query' | 'execute_query' | 'generate_visualization' | 'generate_answer';
+export type ChatStep = 'route_question' | 'generate_direct_response' | 'contextual_content' | 'generate_query' | 'validate_query' | 'correct_query' | 'execute_query' | 'generate_visualization' | 'generate_answer';
 export type StepStatus = 'running' | 'complete' | 'error';
 
 export interface ChatResponse {

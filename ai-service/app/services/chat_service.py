@@ -9,7 +9,12 @@ from uuid import uuid4
 
 from app.ai.agent.graph import MAX_QUERY_RETRIES, procurement_graph
 from app.models.chat import ChatResponse
-from app.services.conversation_service import finish_turn, load_chat_history, start_turn
+from app.services.conversation_service import (
+    finish_turn,
+    load_chat_history,
+    load_query_context,
+    start_turn,
+)
 
 logger = logging.getLogger(__name__)
 PUBLIC_FAILURE_MESSAGE = "The assistant could not finish this response. Please try again."
@@ -18,9 +23,11 @@ PUBLIC_FAILURE_MESSAGE = "The assistant could not finish this response. Please t
 def initial_state(
     message: str,
     chat_history: list[dict[str, str]] | None = None,
+    query_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    # MongoDB supplies history; results and errors must never leak across turns.
-    return {
+    # Current-turn artifacts are reset. Reusable context is loaded into
+    # separate fields and can only be selected by the contextual route.
+    state = {
         "question": message,
         "chat_history": chat_history or [],
         "route_category": "analytical",
@@ -34,8 +41,35 @@ def initial_state(
         "query_result": [],
         "result_count": 0,
         "execution_error": None,
+        "has_contextual_data": False,
+        "contextual_query_result": [],
+        "contextual_query_description": "",
+        "contextual_pipeline": [],
+        "contextual_result_count": 0,
         "visualization": None,
         "answer": "",
+    }
+    if query_context is not None:
+        state.update({
+            "has_contextual_data": True,
+            "contextual_query_result": query_context.get("query_result", []),
+            "contextual_query_description": query_context.get(
+                "query_description", ""
+            ),
+            "contextual_pipeline": query_context.get("pipeline", []),
+            "contextual_result_count": query_context.get("result_count", 0),
+        })
+    return state
+
+
+def reusable_query_context(state: dict[str, Any]) -> dict[str, Any] | None:
+    if not state.get("has_contextual_data", False):
+        return None
+    return {
+        "query_result": state.get("contextual_query_result", []),
+        "query_description": state.get("contextual_query_description", ""),
+        "pipeline": state.get("contextual_pipeline", []),
+        "result_count": state.get("contextual_result_count", 0),
     }
 
 
@@ -50,6 +84,10 @@ def visualization_payload(state: dict[str, Any]) -> dict[str, Any] | None:
 
 def chat_response(conversation_id: str, state: dict[str, Any]) -> dict[str, Any]:
     is_analytical = state.get("route_category", "analytical") == "analytical"
+    can_visualize = state.get("route_category") in (
+        "analytical",
+        "contextual_content",
+    )
 
     return ChatResponse(
         conversation_id=conversation_id,
@@ -60,7 +98,7 @@ def chat_response(conversation_id: str, state: dict[str, Any]) -> dict[str, Any]
         retry_count=state.get("retry_count", 0) if is_analytical else 0,
         visualization=(
             visualization_payload(state)
-            if is_analytical
+            if can_visualize
             else None
         ),
     ).model_dump(mode="json")
@@ -70,7 +108,11 @@ def process_chat_message(message: str, conversation_id: str | None = None):
     existing_conversation_id = conversation_id
     conversation_id = conversation_id or str(uuid4())
     turn_id = str(uuid4())
-    state = initial_state(message, load_chat_history(existing_conversation_id))
+    state = initial_state(
+        message,
+        load_chat_history(existing_conversation_id),
+        load_query_context(existing_conversation_id),
+    )
     start_turn(
         conversation_id=conversation_id,
         turn_id=turn_id,
@@ -86,6 +128,7 @@ def process_chat_message(message: str, conversation_id: str | None = None):
             conversation_id=conversation_id,
             turn_id=turn_id,
             response=response,
+            query_context=reusable_query_context(result),
         )
         return response
     except Exception:
@@ -118,7 +161,11 @@ async def stream_chat_message(
     started = False
 
     try:
-        state = initial_state(message, load_chat_history(existing_conversation_id))
+        state = initial_state(
+            message,
+            load_chat_history(existing_conversation_id),
+            load_query_context(existing_conversation_id),
+        )
         start_turn(
             conversation_id=conversation_id,
             turn_id=turn_id,
@@ -137,7 +184,10 @@ async def stream_chat_message(
                     token, metadata = chunk
                     # Only final answer text belongs in the chat. Do not expose
                     # structured query tokens, reasoning, or tool-call blocks.
-                    if metadata.get("langgraph_node") == "generate_answer":
+                    if metadata.get("langgraph_node") in (
+                        "generate_answer",
+                        "contextual_content",
+                    ):
                         content = token.content
                         if isinstance(content, list):
                             content = "".join(
@@ -157,12 +207,33 @@ async def stream_chat_message(
                         yield progress(node, "complete", "Request understood")
                         if state.get("route_category") == "analytical":
                             yield progress("generate_query", "running", "Generating MongoDB query")
+                        elif state.get("route_category") == "contextual_content":
+                            yield progress(
+                                "contextual_content",
+                                "running",
+                                "Using the previous result",
+                            )
                         else:
                             yield progress("generate_direct_response", "running", "Preparing response")
                     elif node == "generate_direct_response":
                         yield progress(node, "complete", "Response prepared")
                         if state.get("answer"):
                             yield {"type": "answer_delta", "text": state["answer"]}
+                    elif node == "contextual_content":
+                        yield progress(
+                            node,
+                            "complete",
+                            "Previous result reused",
+                        )
+                        if (
+                            state.get("wants_visualization")
+                            and state.get("query_result")
+                        ):
+                            yield progress(
+                                "generate_visualization",
+                                "running",
+                                "Creating visualization",
+                            )
                     elif node in ("generate_query", "correct_query"):
                         yield progress(node, "complete", "Query generated" if node == "generate_query" else "Query corrected")
                         yield {
@@ -216,6 +287,7 @@ async def stream_chat_message(
             conversation_id=conversation_id,
             turn_id=turn_id,
             response=response,
+            query_context=reusable_query_context(state),
         )
         persisted = True
         yield {"type": "done", **response}

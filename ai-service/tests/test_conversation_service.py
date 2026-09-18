@@ -108,6 +108,40 @@ class ConversationServiceTests(unittest.TestCase):
         with self.assertRaises(conversation_service.ConversationNotFoundError):
             conversation_service.load_chat_history("missing")
 
+    def test_query_context_is_private_and_can_be_reloaded(self):
+        context = {
+            "query_result": [{"department": "Public Works", "spend": 100}],
+            "query_description": "Ranks departments by spend.",
+            "pipeline": [{"$limit": 1}],
+            "result_count": 1,
+        }
+        conversation_service.finish_turn(
+            conversation_id="conversation-1",
+            turn_id="turn-1",
+            response={"answer": "Public Works.", "result_count": 1},
+            query_context=context,
+        )
+
+        stored = self.messages.update_one.call_args_list[-1].args[1]["$set"]
+        self.assertEqual(stored["metadata"]["query_context"], context)
+        self.assertNotIn("query_context", conversation_service._message({
+            "_id": "message-1",
+            "conversation_id": "conversation-1",
+            "turn_id": "turn-1",
+            "role": "assistant",
+            "content": "Public Works.",
+            "created_at": datetime.now(timezone.utc),
+            "metadata": stored["metadata"],
+        }))
+
+        self.messages.find_one.return_value = {
+            "metadata": {"query_context": context}
+        }
+        self.assertEqual(
+            conversation_service.load_query_context("conversation-1"),
+            context,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

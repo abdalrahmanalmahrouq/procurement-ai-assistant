@@ -8,6 +8,7 @@ RouteCategory = Literal[
     "project_help",
     "out_of_scope",
     "analytical",
+    "contextual_content",
 ]
 
 
