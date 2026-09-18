@@ -29,7 +29,10 @@ class ContextualContentTests(unittest.TestCase):
         )
         answer = FakeListChatModel(responses=["Public Works spent the most."])
         contextual = FakeListChatModel(
-            responses=["Here is the previous result as a metric card."]
+            responses=[
+                "Here is the previous result as a metric card.\n\n"
+                "```mermaid\nxychart-beta\nbar [123]\n```"
+            ]
         )
         visualization = MagicMock()
         visualization.with_structured_output.return_value.invoke.return_value = (
@@ -81,6 +84,7 @@ class ContextualContentTests(unittest.TestCase):
 
         response = chat_response(thread_id, second)
         self.assertEqual(second["route_category"], "contextual_content")
+        self.assertNotIn("mermaid", response["answer"])
         self.assertEqual(response["visualization"]["type"], "metric")
         self.assertIsNone(response["pipeline"])
         self.assertEqual(

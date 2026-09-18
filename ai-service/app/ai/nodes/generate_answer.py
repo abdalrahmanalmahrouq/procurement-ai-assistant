@@ -39,6 +39,11 @@ NAMED_VISUALIZATION_TYPES = (
     ("metric", ("metric card", "kpi card", "kpi")),
 )
 
+FENCED_BLOCK_PATTERN = re.compile(
+    r"```[^\n]*\n?[\s\S]*?(?:```|$)",
+    flags=re.IGNORECASE,
+)
+
 
 def _contains_term(text: str, terms: tuple[str, ...]) -> bool:
     return any(
@@ -73,6 +78,12 @@ def requested_visualization_type(question: str) -> VisualizationSelection:
         return "metric"
 
     return "bar"
+
+
+def clean_visualization_answer(answer: str) -> str:
+    """Remove model-generated diagrams duplicated by the React visualization."""
+    cleaned = FENCED_BLOCK_PATTERN.sub("", answer).strip()
+    return cleaned or "Here is the requested visualization."
 
 
 def generate_answer(
@@ -162,7 +173,11 @@ the result above.
         ]
     )
 
+    answer = response.content
+    if visualization_type != "none":
+        answer = clean_visualization_answer(answer)
+
     return {
         **answer_state,
-        "answer": response.content
+        "answer": answer
     }

@@ -4,7 +4,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.ai.agent.state import ProcurementAgentState
 from app.ai.llm import get_llm
-from app.ai.nodes.generate_answer import requested_visualization_type
+from app.ai.nodes.generate_answer import (
+    clean_visualization_answer,
+    requested_visualization_type,
+)
 from app.ai.prompts.contextual_content_prompt import (
     CONTEXTUAL_CONTENT_SYSTEM_PROMPT,
 )
@@ -59,4 +62,8 @@ Reusable procurement result:
         ]
     )
 
-    return {**contextual_state, "answer": response.content}
+    answer = response.content
+    if visualization_type != "none":
+        answer = clean_visualization_answer(answer)
+
+    return {**contextual_state, "answer": answer}

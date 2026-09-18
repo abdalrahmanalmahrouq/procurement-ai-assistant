@@ -2,7 +2,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-from app.ai.nodes.generate_answer import generate_answer
+from app.ai.nodes.generate_answer import clean_visualization_answer, generate_answer
 from app.ai.models.route_model import RouteDecision
 
 
@@ -35,6 +35,26 @@ class AnswerVisualizationDecisionTests(unittest.TestCase):
 
         self.assertFalse(result["wants_visualization"])
         self.assertEqual(result["visualization_type"], "none")
+
+    def test_duplicate_visualization_code_is_removed_from_answer(self):
+        answer = """Here is the chart.
+
+```mermaid
+xychart-beta
+bar [10, 20]
+```
+"""
+
+        self.assertEqual(
+            clean_visualization_answer(answer),
+            "Here is the chart.",
+        )
+
+    def test_unclosed_visualization_code_is_removed_from_answer(self):
+        self.assertEqual(
+            clean_visualization_answer("Here it is.\n```text\n████ 10"),
+            "Here it is.",
+        )
 
 
 if __name__ == "__main__":

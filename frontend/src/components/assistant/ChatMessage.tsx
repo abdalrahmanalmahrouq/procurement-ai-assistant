@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import {
   AlertCircle,
   BadgeCheck,
@@ -19,25 +19,14 @@ import {
 import type { ChatTurn, Pipeline } from '../../types/chat';
 import { Visualization } from './Visualization';
 
+const MarkdownAnswer = lazy(() => import('./MarkdownAnswer'));
+
 const formatTime = (value: string) => new Date(value).toLocaleTimeString([], {
   hour: 'numeric',
   minute: '2-digit',
 });
 
-function AnswerText({ text }: { text: string }) {
-  // Model output remains text; basic emphasis is rendered without injecting HTML.
-  return (
-    <div className="whitespace-pre-wrap break-words text-[15px] leading-7 text-slate-700">
-      {text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, index) => (
-        part.startsWith('**') && part.endsWith('**')
-          ? <strong key={index} className="font-semibold text-slate-950">{part.slice(2, -2)}</strong>
-          : part.startsWith('`') && part.endsWith('`')
-            ? <code key={index} className="rounded bg-slate-100 px-1 text-sm">{part.slice(1, -1)}</code>
-            : part
-      ))}
-    </div>
-  );
-}
+const VISUALIZATION_REQUEST = /\b(?:chart|graph|plot|visuali[sz](?:e|ation)|metric card|kpi)\b/i;
 
 function pipelineYear(pipeline: Pipeline | null): string | undefined {
   for (const stage of pipeline ?? []) {
@@ -135,6 +124,9 @@ export function ChatMessage({ turn, onRetry, canRetry }: {
   const running = turn.progress.find((item) => item.status === 'running');
   const queryVerified = turn.progress.length === 0
     || turn.progress.some((item) => item.step === 'execute_query' && item.status === 'complete');
+  const hasVisualizationOutput = Boolean(turn.visualization)
+    || turn.progress.some((item) => item.step === 'generate_visualization')
+    || VISUALIZATION_REQUEST.test(turn.question);
 
   async function copyAnswer() {
     try {
@@ -184,7 +176,14 @@ export function ChatMessage({ turn, onRetry, canRetry }: {
               <Loader2 className="h-4 w-4 animate-spin text-emerald" />{running?.label ?? 'Preparing response'}…
             </div>
           )}
-          {turn.answer && <AnswerText text={turn.answer} />}
+          {turn.answer && (
+            <Suspense fallback={<p className="text-sm text-slate-500">Formatting response…</p>}>
+              <MarkdownAnswer
+                text={turn.answer}
+                suppressVisualCode={hasVisualizationOutput}
+              />
+            </Suspense>
+          )}
           {turn.visualization && <Visualization visualization={turn.visualization} />}
           {turn.pipeline !== null && <QueryPanel key={`${turn.queryGeneratedAt}-${streaming}`} turn={turn} verified={queryVerified} />}
           {turn.error && (

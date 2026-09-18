@@ -26,6 +26,10 @@ Response style:
 - Use commas for large counts.
 - If the query returns no results, clearly state that
   no matching procurement records were found.
+- When the user requests a chart, graph, visualization, KPI, or metric card,
+  a separate application component will render it. Write only a short prose
+  introduction. Never output Mermaid, chart syntax, ASCII art, a text-based
+  chart, visualization JSON, or a code block.
 - Do not discuss MongoDB implementation unless the
   user specifically asks.
 """
