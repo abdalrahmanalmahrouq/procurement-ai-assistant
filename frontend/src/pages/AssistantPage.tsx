@@ -18,9 +18,11 @@ export function AssistantPage() {
     activeConversationId,
     isStreaming,
     isLoadingMessages,
+    deletingConversationId,
     historyError,
     sendMessage,
     openConversation,
+    deleteConversation,
     newConversation,
   } = useChat();
   const [input, setInput] = useState('');
@@ -75,7 +77,8 @@ export function AssistantPage() {
         open={historyOpen}
         conversations={conversations}
         activeConversationId={activeConversationId}
-        loading={isLoadingMessages}
+        loading={isLoadingMessages || isStreaming}
+        deletingConversationId={deletingConversationId}
         error={historyError}
         onClose={() => setHistoryOpen(false)}
         onOpenConversation={(id) => {
@@ -83,6 +86,7 @@ export function AssistantPage() {
           setHistoryOpen(false);
           stickToBottom.current = true;
         }}
+        onDeleteConversation={deleteConversation}
       />
 
       <div className="relative min-h-0 flex-1">

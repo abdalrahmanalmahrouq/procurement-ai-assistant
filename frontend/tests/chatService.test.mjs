@@ -7,7 +7,7 @@ import ts from 'typescript';
 const source = (await readFile(new URL('../src/services/chatService.ts', import.meta.url), 'utf8'))
   .replace("import.meta.env.VITE_AI_API_URL ?? ''", "''");
 const { outputText } = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } });
-const { consumeChatStream, fetchConversation, fetchConversations, streamChat } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
+const { consumeChatStream, deleteConversation, fetchConversation, fetchConversations, streamChat } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 const encode = (value) => new TextEncoder().encode(value);
 const frame = (event) => `data: ${JSON.stringify(event)}\n\n`;
 const done = { type: 'done', conversation_id: 'thread-1', answer: 'Hello', pipeline: [], query_description: '', result_count: 0, retry_count: 0, visualization: null };
@@ -71,4 +71,14 @@ test('loads the conversation list and an encoded conversation id', async (contex
   });
   assert.equal((await fetchConversations())[0].title, 'First chat');
   assert.equal((await fetchConversation('thread/1')).conversation.id, 'thread/1');
+});
+
+test('soft-deletes an encoded conversation id', async (context) => {
+  context.mock.method(globalThis, 'fetch', async (url, options) => {
+    assert.equal(url, '/api/chat/conversations/thread%2F1');
+    assert.equal(options.method, 'DELETE');
+    return new Response(null, { status: 204 });
+  });
+
+  await deleteConversation('thread/1');
 });

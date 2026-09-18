@@ -19,6 +19,21 @@ export function fetchConversation(conversationId: string, signal?: AbortSignal):
   return getJson(`/api/chat/conversations/${encodeURIComponent(conversationId)}`, signal);
 }
 
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const response = await fetch(
+    `${AI_API_URL}/api/chat/conversations/${encodeURIComponent(conversationId)}`,
+    { method: 'DELETE' },
+  );
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { detail?: unknown } | null;
+    throw new Error(
+      typeof body?.detail === 'string'
+        ? body.detail
+        : `Could not delete the conversation (${response.status}).`,
+    );
+  }
+}
+
 /** Decode SSE frames across arbitrary network and UTF-8 chunk boundaries. */
 export async function consumeChatStream(
   body: ReadableStream<Uint8Array>,

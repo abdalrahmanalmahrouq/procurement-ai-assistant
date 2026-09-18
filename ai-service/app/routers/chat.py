@@ -6,6 +6,8 @@ from fastapi.responses import StreamingResponse
 from fastapi import (
     APIRouter,
     HTTPException,
+    Response,
+    status,
 )
 
 from app.models.chat import (
@@ -21,6 +23,7 @@ from app.services.chat_service import (
 )
 from app.services.conversation_service import (
     ConversationNotFoundError,
+    delete_conversation,
     get_conversation,
     list_conversations,
     list_messages,
@@ -50,6 +53,18 @@ def conversation_detail(conversation_id: str):
         }
     except ConversationNotFoundError as error:
         raise HTTPException(status_code=404, detail="Conversation not found.") from error
+
+
+@router.delete(
+    "/conversations/{conversation_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def conversation_delete(conversation_id: str):
+    try:
+        delete_conversation(conversation_id)
+    except ConversationNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Conversation not found.") from error
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/stream")

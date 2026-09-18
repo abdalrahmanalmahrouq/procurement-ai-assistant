@@ -108,6 +108,32 @@ class ConversationServiceTests(unittest.TestCase):
         with self.assertRaises(conversation_service.ConversationNotFoundError):
             conversation_service.load_chat_history("missing")
 
+    def test_list_conversations_excludes_soft_deleted_documents(self):
+        cursor = MagicMock()
+        self.conversations.find.return_value = cursor
+        cursor.sort.return_value = []
+
+        self.assertEqual(conversation_service.list_conversations(), [])
+        self.conversations.find.assert_called_once_with({"deleted_at": None})
+
+    def test_delete_conversation_sets_deleted_at(self):
+        self.conversations.update_one.return_value.matched_count = 1
+
+        conversation_service.delete_conversation("conversation-1")
+
+        query, update = self.conversations.update_one.call_args.args
+        self.assertEqual(query, {
+            "_id": "conversation-1",
+            "deleted_at": None,
+        })
+        self.assertIsInstance(update["$set"]["deleted_at"], datetime)
+
+    def test_deleting_missing_conversation_is_rejected(self):
+        self.conversations.update_one.return_value.matched_count = 0
+
+        with self.assertRaises(conversation_service.ConversationNotFoundError):
+            conversation_service.delete_conversation("missing")
+
     def test_query_context_is_private_and_can_be_reloaded(self):
         context = {
             "query_result": [{"department": "Public Works", "spend": 100}],

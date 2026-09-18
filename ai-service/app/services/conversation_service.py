@@ -20,11 +20,13 @@ def _as_utc(value: datetime) -> datetime:
 
 
 def _conversation(document: dict[str, Any]) -> dict[str, Any]:
+    deleted_at = document.get("deleted_at")
     return {
         "id": str(document["_id"]),
         "title": document["title"],
         "created_at": _as_utc(document["created_at"]),
         "updated_at": _as_utc(document["updated_at"]),
+        "deleted_at": _as_utc(deleted_at) if deleted_at else None,
     }
 
 
@@ -52,15 +54,37 @@ def _title_from(message: str) -> str:
 
 
 def get_conversation(conversation_id: str) -> dict[str, Any]:
-    document = conversations_collection.find_one({"_id": conversation_id})
+    document = conversations_collection.find_one({
+        "_id": conversation_id,
+        "deleted_at": None,
+    })
     if document is None:
         raise ConversationNotFoundError(conversation_id)
     return _conversation(document)
 
 
 def list_conversations() -> list[dict[str, Any]]:
-    documents = conversations_collection.find().sort("updated_at", -1)
+    documents = conversations_collection.find(
+        {"deleted_at": None}
+    ).sort("updated_at", -1)
     return [_conversation(document) for document in documents]
+
+
+def delete_conversation(conversation_id: str) -> None:
+    """Soft-delete a conversation while retaining its messages."""
+    result = conversations_collection.update_one(
+        {
+            "_id": conversation_id,
+            "deleted_at": None,
+        },
+        {
+            "$set": {
+                "deleted_at": datetime.now(timezone.utc),
+            }
+        },
+    )
+    if result.matched_count == 0:
+        raise ConversationNotFoundError(conversation_id)
 
 
 def list_messages(conversation_id: str) -> list[dict[str, Any]]:
@@ -134,6 +158,7 @@ def start_turn(
             "$setOnInsert": {
                 "title": _title_from(question),
                 "created_at": now,
+                "deleted_at": None,
             },
             "$set": {"updated_at": now},
         },

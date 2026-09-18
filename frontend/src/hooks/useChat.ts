@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { fetchConversation, fetchConversations, streamChat } from '../services/chatService';
+import {
+  deleteConversation as deleteConversationRequest,
+  fetchConversation,
+  fetchConversations,
+  streamChat,
+} from '../services/chatService';
 import type { ChatEvent, ChatTurn, ConversationSummary, StoredMessage } from '../types/chat';
 
 const ACTIVE_CONVERSATION_KEY = 'penny.activeConversationId';
@@ -98,6 +103,7 @@ export function useChat() {
   const [activeConversationId, setActiveConversationId] = useState<string | undefined>(initialConversationId);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingMessages, setIsLoadingMessages] = useState(Boolean(initialConversationId));
+  const [deletingConversationId, setDeletingConversationId] = useState<string>();
   const [historyError, setHistoryError] = useState<string>();
   const conversationId = useRef<string | undefined>(initialConversationId);
   const activeRequest = useRef<AbortController | null>(null);
@@ -176,6 +182,33 @@ export function useChat() {
     }
   }
 
+  async function deleteConversation(id: string) {
+    if (activeRequest.current || deletingConversationId) return false;
+    setDeletingConversationId(id);
+    setHistoryError(undefined);
+    try {
+      await deleteConversationRequest(id);
+      setConversations((current) => current.filter((item) => item.id !== id));
+      if (conversationId.current === id) {
+        historyRequest.current?.abort();
+        historyRequest.current = null;
+        setCurrentConversation(undefined);
+        setTurns([]);
+        setIsLoadingMessages(false);
+      }
+      return true;
+    } catch (error) {
+      setHistoryError(
+        error instanceof Error
+          ? error.message
+          : 'Could not delete this conversation.',
+      );
+      return false;
+    } finally {
+      setDeletingConversationId(undefined);
+    }
+  }
+
   async function sendMessage(message: string, retryId?: string) {
     const question = message.trim();
     if (!question || question.length > 4000 || activeRequest.current) return;
@@ -236,9 +269,11 @@ export function useChat() {
     activeConversationId,
     isStreaming,
     isLoadingMessages,
+    deletingConversationId,
     historyError,
     sendMessage,
     openConversation,
+    deleteConversation,
     newConversation,
   };
 }
