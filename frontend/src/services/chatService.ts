@@ -82,10 +82,15 @@ export async function streamChat(
   conversationId: string | undefined,
   onEvent: (event: ChatEvent) => void,
   signal: AbortSignal,
+  requestId: string = crypto.randomUUID(),
 ): Promise<void> {
   const response = await fetch(`${AI_API_URL}/api/chat/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      'X-Request-ID': requestId,
+    },
     body: JSON.stringify({ message, conversation_id: conversationId }),
     signal,
   });

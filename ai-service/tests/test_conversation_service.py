@@ -33,6 +33,7 @@ class ConversationServiceTests(unittest.TestCase):
             turn_id="turn-1",
             question="  Which   department spent the most?  ",
             response={
+                "request_id": "request-1",
                 "answer": "Public Works.",
                 "pipeline": [{"$limit": 1}],
                 "query_description": "Ranks departments.",
@@ -68,6 +69,8 @@ class ConversationServiceTests(unittest.TestCase):
         ]
         self.assertEqual(user_document["conversation_id"], "conversation-1")
         self.assertEqual(user_document["turn_id"], assistant_document["turn_id"])
+        self.assertEqual(user_document["metadata"]["request_id"], "request-1")
+        self.assertEqual(assistant_document["metadata"]["request_id"], "request-1")
         self.assertEqual(assistant_document["metadata"]["pipeline"], [{"$limit": 1}])
         self.assertEqual(
             assistant_document["metadata"]["visualization"]["type"], "metric"

@@ -17,7 +17,13 @@ with patch("pymongo.MongoClient"):
     from app.ai.models.visualization_model import Visualization, VisualizationDatum
     from app.models.chat import ChatRequest
     from app.routers.chat import router
-    from app.services.chat_service import process_chat_message, stream_chat_message
+    from app.services.chat_service import (
+        agent_config,
+        process_chat_message,
+        stream_chat_message,
+        trace_metadata,
+        trace_outcome,
+    )
 
 
 class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
@@ -251,6 +257,155 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
                 if event["type"] == "done":
                     self.assertTrue(checkpoint_finished)
 
+    async def test_request_id_is_shared_by_events_and_graph_trace(self):
+        request_id = str(uuid4())
+        captured_config = None
+
+        async def fake_stream(*args, **kwargs):
+            nonlocal captured_config
+            captured_config = kwargs["config"]
+            yield "updates", {"save_conversation": {"answer": "Saved"}}
+
+        with patch.object(procurement_graph, "astream", side_effect=fake_stream):
+            events = [
+                event
+                async for event in stream_chat_message(
+                    "A question",
+                    request_id=request_id,
+                )
+            ]
+
+        self.assertEqual(events[0]["request_id"], request_id)
+        self.assertEqual(events[-1]["request_id"], request_id)
+        self.assertEqual(captured_config["metadata"]["request_id"], request_id)
+        self.assertEqual(captured_config["run_name"], "procurement-agent")
+
+    async def test_stream_records_final_route_metadata_on_root_trace(self):
+        recorded_metadata = []
+
+        class FakeTrace:
+            def __init__(self):
+                self.metadata = {}
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+        async def fake_stream(*args, **kwargs):
+            yield "updates", {"route_question": {"route_category": "greeting"}}
+            yield "updates", {"save_conversation": {"answer": "Hello"}}
+
+        root_trace = FakeTrace()
+        with (
+            patch.object(procurement_graph, "astream", side_effect=fake_stream),
+            patch("app.services.chat_service.trace", return_value=root_trace),
+            patch("app.services.chat_service.get_current_run_tree", return_value=object()),
+            patch(
+                "app.services.chat_service.set_run_metadata",
+                side_effect=lambda **metadata: recorded_metadata.append(metadata),
+            ),
+        ):
+            events = [event async for event in stream_chat_message("Hello")]
+
+        self.assertEqual(events[-1]["type"], "done")
+        self.assertEqual(root_trace.metadata["route_category"], "greeting")
+        self.assertEqual(root_trace.metadata["outcome"], "success")
+        self.assertEqual(recorded_metadata, [])
+
+    def test_json_request_records_final_route_metadata_on_root_trace(self):
+        recorded_metadata = []
+
+        class FakeTrace:
+            def __init__(self):
+                self.metadata = {}
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        result = {
+            "route_category": "analytical",
+            "answer": "There are 3 records.",
+            "pipeline": [{"$count": "count"}],
+            "result_count": 1,
+            "retry_count": 0,
+            "visualization": None,
+            "is_valid": True,
+            "validation_error": None,
+            "execution_error": None,
+        }
+        root_trace = FakeTrace()
+        with (
+            patch.object(procurement_graph, "invoke", return_value=result),
+            patch("app.services.chat_service.trace", return_value=root_trace),
+            patch("app.services.chat_service.get_current_run_tree", return_value=object()),
+            patch(
+                "app.services.chat_service.set_run_metadata",
+                side_effect=lambda **metadata: recorded_metadata.append(metadata),
+            ),
+        ):
+            response = process_chat_message("Count records")
+
+        self.assertEqual(response["answer"], "There are 3 records.")
+        self.assertEqual(root_trace.metadata["route_category"], "analytical")
+        self.assertEqual(root_trace.metadata["outcome"], "success")
+        self.assertEqual(recorded_metadata, [])
+
+    def test_agent_config_correlates_request_conversation_and_turn(self):
+        config = agent_config(
+            request_id="request-1",
+            conversation_id="conversation-1",
+            turn_id="turn-1",
+        )
+
+        self.assertEqual(config["configurable"]["thread_id"], "conversation-1")
+        self.assertEqual(config["metadata"], {
+            "request_id": "request-1",
+            "conversation_id": "conversation-1",
+            "turn_id": "turn-1",
+        })
+
+    def test_trace_metadata_summarizes_agent_outcomes(self):
+        state = {
+            "route_category": "analytical",
+            "retry_count": 1,
+            "visualization": {"type": "bar"},
+            "execution_error": None,
+            "validation_error": None,
+            "is_valid": True,
+        }
+        metadata = trace_metadata(
+            request_id="request-1",
+            conversation_id="conversation-1",
+            turn_id="turn-1",
+            state=state,
+            outcome=trace_outcome(state),
+        )
+
+        self.assertEqual(metadata["route_category"], "analytical")
+        self.assertEqual(metadata["outcome"], "success")
+        self.assertEqual(metadata["retry_count"], 1)
+        self.assertTrue(metadata["has_visualization"])
+        self.assertEqual(
+            trace_outcome({
+                "route_category": "analytical",
+                "validation_error": "Invalid stage",
+                "is_valid": False,
+            }),
+            "validation_failure",
+        )
+        self.assertEqual(
+            trace_outcome({
+                "route_category": "analytical",
+                "execution_error": "Database timeout",
+            }),
+            "execution_failure",
+        )
+
     async def test_disconnecting_closes_graph_iterator(self):
         closed = False
 
@@ -279,14 +434,22 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
     def test_http_stream_and_input_validation(self):
         app = FastAPI()
         app.include_router(router)
+        request_id = str(uuid4())
         with TestClient(app) as client:
-            response = client.post("/api/chat/stream", json={"message": "Count line records"})
+            response = client.post(
+                "/api/chat/stream",
+                json={"message": "Count line records"},
+                headers={"X-Request-ID": request_id},
+            )
             self.assertEqual(response.status_code, 200)
             self.assertIn("text/event-stream", response.headers["content-type"])
             self.assertEqual(response.headers["x-accel-buffering"], "no")
+            self.assertEqual(response.headers["x-request-id"], request_id)
             events = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
             self.assertEqual(events[0]["type"], "start")
+            self.assertEqual(events[0]["request_id"], request_id)
             self.assertEqual(events[-1]["type"], "done")
+            self.assertEqual(events[-1]["request_id"], request_id)
             self.assertEqual(client.post("/api/chat/stream", json={"message": "  "}).status_code, 422)
             self.assertEqual(client.post("/api/chat", json={"message": "Count line records"}).status_code, 200)
         with self.assertRaises(ValidationError):

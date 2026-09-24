@@ -1,11 +1,13 @@
 import asyncio
 import json
+import logging
 from contextlib import suppress
 
 from fastapi.responses import StreamingResponse
 from fastapi import (
     APIRouter,
     HTTPException,
+    Request,
     Response,
     status,
 )
@@ -16,6 +18,7 @@ from app.models.chat import (
     ConversationMessages,
     ConversationSummary,
 )
+from app.observability import REQUEST_ID_HEADER, get_request_id
 
 from app.services.chat_service import (
     process_chat_message,
@@ -34,6 +37,7 @@ router = APIRouter(
     prefix="/api/chat",
     tags=["AI Assistant"],
 )
+logger = logging.getLogger(__name__)
 
 
 @router.get("/conversations", response_model=list[ConversationSummary])
@@ -68,9 +72,15 @@ def conversation_delete(conversation_id: str):
 
 
 @router.post("/stream")
-async def chat_stream(request: ChatRequest):
+async def chat_stream(request: ChatRequest, http_request: Request):
+    request_id = get_request_id(http_request)
+
     async def events():
-        stream = stream_chat_message(request.message, request.conversation_id)
+        stream = stream_chat_message(
+            request.message,
+            request.conversation_id,
+            request_id=request_id,
+        )
         pending = None
         try:
             pending = asyncio.create_task(anext(stream))
@@ -95,7 +105,11 @@ async def chat_stream(request: ChatRequest):
     return StreamingResponse(
         events(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            REQUEST_ID_HEADER: request_id,
+        },
     )
 
 
@@ -105,7 +119,11 @@ async def chat_stream(request: ChatRequest):
 )
 def chat(
     request: ChatRequest,
+    http_request: Request,
+    response: Response,
 ):
+    request_id = get_request_id(http_request)
+    response.headers[REQUEST_ID_HEADER] = request_id
 
     try:
 
@@ -114,12 +132,13 @@ def chat(
             conversation_id=(
                 request.conversation_id
             ),
+            request_id=request_id,
         )
 
-    except Exception as error:
-
-        print(
-            f"AI assistant error: {error}"
+    except Exception:
+        logger.exception(
+            "AI assistant request failed request_id=%s",
+            request_id,
         )
 
         raise HTTPException(

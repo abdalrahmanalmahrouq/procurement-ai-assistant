@@ -21,6 +21,7 @@ export type ChatStep = 'route_question' | 'generate_direct_response' | 'contextu
 export type StepStatus = 'running' | 'complete' | 'error';
 
 export interface ChatResponse {
+  request_id: string;
   conversation_id: string;
   answer: string;
   query_description: string | null;
@@ -37,16 +38,17 @@ export interface ChatProgress {
 }
 
 export type ChatEvent =
-  | { type: 'start'; conversation_id: string }
+  | { type: 'start'; request_id: string; conversation_id: string }
   | ({ type: 'progress' } & ChatProgress)
   | { type: 'query'; pipeline: Pipeline; query_description: string; retry_count: number }
   | { type: 'visualization'; visualization: Visualization }
   | { type: 'answer_delta'; text: string }
   | ({ type: 'done' } & ChatResponse)
-  | { type: 'error'; message: string };
+  | { type: 'error'; request_id: string; message: string };
 
 export interface ChatTurn {
   id: string;
+  requestId?: string;
   question: string;
   createdAt: string;
   answer: string;
@@ -73,6 +75,7 @@ export interface StoredMessage {
   id: string;
   conversation_id: string;
   turn_id: string;
+  request_id: string | null;
   role: 'user' | 'assistant';
   content: string;
   created_at: string;

@@ -10,14 +10,14 @@ const { outputText } = ts.transpileModule(source, { compilerOptions: { target: t
 const { consumeChatStream, deleteConversation, fetchConversation, fetchConversations, streamChat } = await import(`data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`);
 const encode = (value) => new TextEncoder().encode(value);
 const frame = (event) => `data: ${JSON.stringify(event)}\n\n`;
-const done = { type: 'done', conversation_id: 'thread-1', answer: 'Hello', pipeline: [], query_description: '', result_count: 0, retry_count: 0, visualization: null };
+const done = { type: 'done', request_id: 'request-1', conversation_id: 'thread-1', answer: 'Hello', pipeline: [], query_description: '', result_count: 0, retry_count: 0, visualization: null };
 function stream(chunks) {
   return new ReadableStream({ start(controller) { chunks.forEach((chunk) => controller.enqueue(chunk)); controller.close(); } });
 }
 
 test('handles one-byte chunks, UTF-8, CRLF, heartbeats, and multiple events', async () => {
   const expected = [
-    { type: 'start', conversation_id: 'thread-1' },
+    { type: 'start', request_id: 'request-1', conversation_id: 'thread-1' },
     { type: 'visualization', visualization: { type: 'metric', title: 'Total', subtitle: '', x_axis_label: '', y_axis_label: '', value_format: 'number', data: [{ label: 'Orders', value: 3 }] } },
     { type: 'answer_delta', text: 'Hello 🌍 مرحبا' },
     done,
@@ -53,10 +53,17 @@ test('sends conversation context and handles HTTP validation errors', async (con
     assert.equal(url, '/api/chat/stream');
     assert.deepEqual(JSON.parse(options.body), { message: 'Follow up', conversation_id: 'thread-1' });
     assert.equal(options.method, 'POST');
+    assert.equal(options.headers['X-Request-ID'], 'request-1');
     assert.ok(options.signal);
     return new Response(JSON.stringify({ detail: [{ msg: 'invalid' }] }), { status: 422 });
   });
-  await assert.rejects(streamChat('Follow up', 'thread-1', () => {}, new AbortController().signal), /failed \(422\)/);
+  await assert.rejects(streamChat(
+    'Follow up',
+    'thread-1',
+    () => {},
+    new AbortController().signal,
+    'request-1',
+  ), /failed \(422\)/);
 });
 
 test('loads the conversation list and an encoded conversation id', async (context) => {

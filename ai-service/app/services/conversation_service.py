@@ -36,6 +36,7 @@ def _message(document: dict[str, Any]) -> dict[str, Any]:
         "id": str(document["_id"]),
         "conversation_id": document["conversation_id"],
         "turn_id": document["turn_id"],
+        "request_id": metadata.get("request_id"),
         "role": document["role"],
         "content": document["content"],
         "created_at": _as_utc(document["created_at"]),
@@ -149,6 +150,7 @@ def start_turn(
     conversation_id: str,
     turn_id: str,
     question: str,
+    request_id: str | None = None,
 ) -> None:
     """Persist the user message before slow model and database work begins."""
     now = datetime.now(timezone.utc)
@@ -174,7 +176,10 @@ def start_turn(
                 "role": "user",
                 "content": question,
                 "created_at": now,
-                "metadata": {"status": "pending"},
+                "metadata": {
+                    "request_id": request_id,
+                    "status": "pending",
+                },
             }
         },
         upsert=True,
@@ -196,6 +201,7 @@ def finish_turn(
         {"$set": {"updated_at": now}},
     )
     metadata = {
+        "request_id": response.get("request_id"),
         "query_description": response.get("query_description"),
         "pipeline": response.get("pipeline"),
         "result_count": response.get("result_count", 0),
@@ -240,6 +246,7 @@ def save_turn(
         conversation_id=conversation_id,
         turn_id=turn_id,
         question=question,
+        request_id=response.get("request_id"),
     )
     finish_turn(
         conversation_id=conversation_id,

@@ -2,13 +2,17 @@
 
 import asyncio
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import aclosing
 from typing import Any
 from uuid import uuid4
 
+from langsmith import get_current_run_tree, set_run_metadata, trace
+
 from app.ai.agent.graph import MAX_QUERY_RETRIES, procurement_graph
 from app.models.chat import ChatResponse
+from app.observability import normalize_request_id
 from app.services.conversation_service import (
     finish_turn,
     load_chat_history,
@@ -18,6 +22,54 @@ from app.services.conversation_service import (
 
 logger = logging.getLogger(__name__)
 PUBLIC_FAILURE_MESSAGE = "The assistant could not finish this response. Please try again."
+
+TRACE_NAME = "procurement-agent-request"
+TRACE_TAGS = ["procurement-ai", "chat-request"]
+
+
+def trace_outcome(state: dict[str, Any]) -> str:
+    """Map the final graph state to a stable operational outcome."""
+    if state.get("route_category") == "analytical":
+        if state.get("execution_error"):
+            return "execution_failure"
+        if state.get("validation_error") and not state.get("is_valid"):
+            return "validation_failure"
+    return "success"
+
+
+def trace_metadata(
+    *,
+    request_id: str,
+    conversation_id: str,
+    turn_id: str,
+    state: dict[str, Any],
+    outcome: str,
+) -> dict[str, Any]:
+    retry_count = state.get("retry_count", 0)
+    return {
+        "request_id": request_id,
+        "conversation_id": conversation_id,
+        "turn_id": turn_id,
+        "environment": os.getenv("APP_ENV", "development"),
+        "route_category": state.get("route_category") or "unknown",
+        "outcome": outcome,
+        "retry_count": retry_count if isinstance(retry_count, int) else 0,
+        "has_visualization": bool(state.get("visualization")),
+    }
+
+
+def update_trace_metadata(
+    *,
+    trace_context: Any | None = None,
+    **metadata: Any,
+) -> None:
+    """Update the root trace even after nested LangGraph runs change context."""
+    trace_run = getattr(trace_context, "new_run", trace_context)
+    if trace_run is not None and hasattr(trace_run, "metadata"):
+        trace_run.metadata.update(metadata)
+        return
+    if get_current_run_tree() is not None:
+        set_run_metadata(**metadata)
 
 
 def initial_state(
@@ -82,7 +134,12 @@ def visualization_payload(state: dict[str, Any]) -> dict[str, Any] | None:
     return visualization.model_dump(mode="json")
 
 
-def chat_response(conversation_id: str, state: dict[str, Any]) -> dict[str, Any]:
+def chat_response(
+    conversation_id: str,
+    state: dict[str, Any],
+    request_id: str | None = None,
+) -> dict[str, Any]:
+    request_id = normalize_request_id(request_id)
     is_analytical = state.get("route_category", "analytical") == "analytical"
     can_visualize = state.get("route_category") in (
         "analytical",
@@ -90,6 +147,7 @@ def chat_response(conversation_id: str, state: dict[str, Any]) -> dict[str, Any]
     )
 
     return ChatResponse(
+        request_id=request_id,
         conversation_id=conversation_id,
         answer=state.get("answer") or "I was unable to answer that question.",
         query_description=state.get("query_description") if is_analytical else None,
@@ -104,7 +162,32 @@ def chat_response(conversation_id: str, state: dict[str, Any]) -> dict[str, Any]
     ).model_dump(mode="json")
 
 
-def process_chat_message(message: str, conversation_id: str | None = None):
+def agent_config(
+    *,
+    request_id: str,
+    conversation_id: str,
+    turn_id: str,
+) -> dict[str, Any]:
+    """Correlate the graph and all child runs with the originating request."""
+    return {
+        "configurable": {"thread_id": conversation_id},
+        "run_name": "procurement-agent",
+        "tags": ["procurement-ai", "chat-request"],
+        "metadata": {
+            "request_id": request_id,
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
+        },
+    }
+
+
+def process_chat_message(
+    message: str,
+    conversation_id: str | None = None,
+    *,
+    request_id: str | None = None,
+):
+    request_id = normalize_request_id(request_id)
     existing_conversation_id = conversation_id
     conversation_id = conversation_id or str(uuid4())
     turn_id = str(uuid4())
@@ -117,20 +200,59 @@ def process_chat_message(message: str, conversation_id: str | None = None):
         conversation_id=conversation_id,
         turn_id=turn_id,
         question=message,
+        request_id=request_id,
     )
     try:
-        result = procurement_graph.invoke(
-            state,
-            config={"configurable": {"thread_id": conversation_id}},
-        )
-        response = chat_response(conversation_id, result)
-        finish_turn(
-            conversation_id=conversation_id,
-            turn_id=turn_id,
-            response=response,
-            query_context=reusable_query_context(result),
-        )
-        return response
+        with trace(
+            TRACE_NAME,
+            run_type="chain",
+            inputs={"question": message},
+            metadata=trace_metadata(
+                request_id=request_id,
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+                state=state,
+                outcome="in_progress",
+            ),
+            tags=TRACE_TAGS,
+        ) as root_trace:
+            try:
+                result = procurement_graph.invoke(
+                    state,
+                    config=agent_config(
+                        request_id=request_id,
+                        conversation_id=conversation_id,
+                        turn_id=turn_id,
+                    ),
+                )
+                response = chat_response(
+                    conversation_id,
+                    result,
+                    request_id=request_id,
+                )
+                finish_turn(
+                    conversation_id=conversation_id,
+                    turn_id=turn_id,
+                    response=response,
+                    query_context=reusable_query_context(result),
+                )
+                update_trace_metadata(trace_context=root_trace, **trace_metadata(
+                    request_id=request_id,
+                    conversation_id=conversation_id,
+                    turn_id=turn_id,
+                    state=result,
+                    outcome=trace_outcome(result),
+                ))
+                return response
+            except Exception:
+                update_trace_metadata(trace_context=root_trace, **trace_metadata(
+                    request_id=request_id,
+                    conversation_id=conversation_id,
+                    turn_id=turn_id,
+                    state=state,
+                    outcome="agent_failure",
+                ))
+                raise
     except Exception:
         finish_turn(
             conversation_id=conversation_id,
@@ -138,6 +260,7 @@ def process_chat_message(message: str, conversation_id: str | None = None):
             response=chat_response(
                 conversation_id,
                 {**state, "answer": PUBLIC_FAILURE_MESSAGE},
+                request_id=request_id,
             ),
             status="error",
         )
@@ -149,9 +272,13 @@ def progress(step: str, status: str, label: str) -> dict[str, Any]:
 
 
 async def stream_chat_message(
-    message: str, conversation_id: str | None = None
+    message: str,
+    conversation_id: str | None = None,
+    *,
+    request_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Allowlist public artifacts; never forward raw graph state or reasoning."""
+    request_id = normalize_request_id(request_id)
     existing_conversation_id = conversation_id
     conversation_id = conversation_id or str(uuid4())
     turn_id = str(uuid4())
@@ -159,6 +286,8 @@ async def stream_chat_message(
     finished = False
     persisted = False
     started = False
+    trace_run = None
+    trace_open = False
 
     try:
         state = initial_state(
@@ -170,13 +299,37 @@ async def stream_chat_message(
             conversation_id=conversation_id,
             turn_id=turn_id,
             question=message,
+            request_id=request_id,
         )
         started = True
-        yield {"type": "start", "conversation_id": conversation_id}
+        trace_run = trace(
+            TRACE_NAME,
+            run_type="chain",
+            inputs={"question": message},
+            metadata=trace_metadata(
+                request_id=request_id,
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+                state=state,
+                outcome="in_progress",
+            ),
+            tags=TRACE_TAGS,
+        )
+        await trace_run.__aenter__()
+        trace_open = True
+        yield {
+            "type": "start",
+            "request_id": request_id,
+            "conversation_id": conversation_id,
+        }
         yield progress("route_question", "running", "Understanding your request")
         async with aclosing(procurement_graph.astream(
             state,
-            config={"configurable": {"thread_id": conversation_id}},
+            config=agent_config(
+                request_id=request_id,
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+            ),
             stream_mode=["updates", "messages"],
         )) as events:
             async for mode, chunk in events:
@@ -282,7 +435,11 @@ async def stream_chat_message(
         # and closes its stream or submits a follow-up question.
         if not finished:
             raise RuntimeError("The agent ended without saving the conversation.")
-        response = chat_response(conversation_id, state)
+        response = chat_response(
+            conversation_id,
+            state,
+            request_id=request_id,
+        )
         finish_turn(
             conversation_id=conversation_id,
             turn_id=turn_id,
@@ -290,11 +447,44 @@ async def stream_chat_message(
             query_context=reusable_query_context(state),
         )
         persisted = True
+        update_trace_metadata(trace_context=trace_run, **trace_metadata(
+            request_id=request_id,
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            state=state,
+            outcome=trace_outcome(state),
+        ))
+        await trace_run.__aexit__(None, None, None)
+        trace_open = False
         yield {"type": "done", **response}
     except asyncio.CancelledError:
+        update_trace_metadata(trace_context=trace_run, **trace_metadata(
+            request_id=request_id,
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            state=state,
+            outcome="cancelled",
+        ))
+        if trace_open and trace_run is not None:
+            await trace_run.__aexit__(None, None, None)
+            trace_open = False
         raise
-    except Exception:
-        logger.exception("AI assistant stream failed")
+    except Exception as error:
+        update_trace_metadata(trace_context=trace_run, **trace_metadata(
+            request_id=request_id,
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            state=state,
+            outcome="agent_failure",
+        ))
+        if trace_open and trace_run is not None:
+            await trace_run.__aexit__(
+                type(error),
+                error,
+                error.__traceback__,
+            )
+            trace_open = False
+        logger.exception("AI assistant stream failed request_id=%s", request_id)
         try:
             finish_turn(
                 conversation_id=conversation_id,
@@ -302,17 +492,31 @@ async def stream_chat_message(
                 response=chat_response(
                     conversation_id,
                     {**state, "answer": PUBLIC_FAILURE_MESSAGE},
+                    request_id=request_id,
                 ),
                 status="error",
             )
             persisted = True
         except Exception:
-            logger.exception("Could not persist failed AI assistant turn")
+            logger.exception(
+                "Could not persist failed AI assistant turn request_id=%s",
+                request_id,
+            )
         yield {
             "type": "error",
+            "request_id": request_id,
             "message": PUBLIC_FAILURE_MESSAGE,
         }
     finally:
+        if trace_open and trace_run is not None:
+            update_trace_metadata(trace_context=trace_run, **trace_metadata(
+                request_id=request_id,
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+                state=state,
+                outcome="cancelled",
+            ))
+            await trace_run.__aexit__(None, None, None)
         if started and not persisted:
             try:
                 finish_turn(
@@ -321,8 +525,12 @@ async def stream_chat_message(
                     response=chat_response(
                         conversation_id,
                         {**state, "answer": PUBLIC_FAILURE_MESSAGE},
+                        request_id=request_id,
                     ),
                     status="error",
                 )
             except Exception:
-                logger.exception("Could not persist failed AI assistant turn")
+                logger.exception(
+                    "Could not persist failed AI assistant turn request_id=%s",
+                    request_id,
+                )

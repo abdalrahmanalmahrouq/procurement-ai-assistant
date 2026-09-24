@@ -33,6 +33,8 @@ class ChatRequest(BaseModel):
 
 
 class ChatResponse(BaseModel):
+    request_id: str
+
     conversation_id: str
 
     answer: str
@@ -60,6 +62,7 @@ class StoredMessage(BaseModel):
     id: str
     conversation_id: str
     turn_id: str
+    request_id: str | None = None
     role: Literal["user", "assistant"]
     content: str
     created_at: datetime
