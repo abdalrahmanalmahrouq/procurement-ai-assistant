@@ -37,3 +37,5 @@ dist/
 .eggs/
 
 settings.json
+
+Agents.md

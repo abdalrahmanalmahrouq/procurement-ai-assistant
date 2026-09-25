@@ -1,3 +1,5 @@
+import re
+
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -10,10 +12,25 @@ from app.ai.models.route_model import RouteDecision
 from app.ai.prompts.route_prompt import ROUTE_SYSTEM_PROMPT
 
 
+MUTATING_DATABASE_INSTRUCTION = re.compile(
+    r"\b(delete|drop|truncate|erase|wipe|remove|update|insert|modify)\b"
+    r"[\s\S]{0,80}\b(record|records|collection|collections|database|data)\b",
+    flags=re.IGNORECASE,
+)
+
+
+def requests_database_mutation(question: str) -> bool:
+    """Keep mutation requests out of the LLM-driven analytics workflow."""
+    return bool(MUTATING_DATABASE_INSTRUCTION.search(question))
+
+
 def route_question(
     state: ProcurementAgentState,
 ) -> ProcurementAgentState:
     """Classify a turn before any query-generation work is performed."""
+    if requests_database_mutation(state["question"]):
+        return {**state, "route_category": "out_of_scope"}
+
     messages = [SystemMessage(content=ROUTE_SYSTEM_PROMPT)]
 
     if state.get("has_contextual_data", False):

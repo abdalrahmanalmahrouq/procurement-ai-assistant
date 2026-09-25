@@ -1,3 +1,9 @@
+from collections.abc import Mapping
+from datetime import date, datetime
+from decimal import Decimal
+from typing import Any
+
+from bson import ObjectId
 from pymongo.errors import PyMongoError
 
 from app.ai.agent.state import (
@@ -10,6 +16,32 @@ from app.database.mongodb import (
 
 
 MAX_RETURNED_RESULTS = 100
+
+
+def normalize_mongo_value(value: Any) -> Any:
+    """Convert MongoDB-specific values into checkpoint-safe Python values."""
+    if isinstance(value, ObjectId):
+        return str(value)
+
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+
+    if isinstance(value, Decimal):
+        return str(value)
+
+    if isinstance(value, Mapping):
+        return {
+            str(key): normalize_mongo_value(nested_value)
+            for key, nested_value in value.items()
+        }
+
+    if isinstance(value, (list, tuple)):
+        return [normalize_mongo_value(item) for item in value]
+
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+
+    return str(value)
 
 
 def execute_query(
@@ -59,6 +91,7 @@ def execute_query(
                 maxTimeMS=15_000,
             )
         )
+        result = normalize_mongo_value(result)
 
         return {
             **state,
