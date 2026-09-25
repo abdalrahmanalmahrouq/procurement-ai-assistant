@@ -12,6 +12,7 @@ from app.ai.agent.state import (
 
 from app.ai.llm import get_llm
 from app.ai.models.visualization_model import VisualizationSelection
+from app.errors import state_error
 
 from app.ai.prompts.answer_prompt import (
     ANSWER_GENERATION_SYSTEM_PROMPT,
@@ -105,11 +106,13 @@ def generate_answer(
 
         return {
             **answer_state,
-            "answer": (
-                "I was unable to retrieve the "
-                "procurement data needed to answer "
-                "that question."
-            )
+            "agent_error": state_error(
+                "DATABASE_UNAVAILABLE",
+                "execute_query",
+                "Procurement data is temporarily unavailable. Please try again.",
+                True,
+            ),
+            "answer": "Procurement data is temporarily unavailable. Please try again.",
         }
 
     question = state["question"]

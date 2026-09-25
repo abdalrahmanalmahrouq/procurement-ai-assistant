@@ -1,15 +1,46 @@
 import logging
 from time import perf_counter
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.errors import ApplicationError
 from app.observability import REQUEST_ID_HEADER, get_request_id
 from app.routers.chat import router as chat_router
 
 
 app = FastAPI(title="Penny Procurement AI Service")
 logger = logging.getLogger(__name__)
+
+
+@app.exception_handler(ApplicationError)
+async def application_error_handler(request: Request, error: ApplicationError):
+    request_id = get_request_id(request)
+    return JSONResponse(
+        status_code=error.status_code,
+        content=error.payload(request_id),
+        headers={REQUEST_ID_HEADER: request_id},
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, error: RequestValidationError):
+    request_id = get_request_id(request)
+    app_error = ApplicationError(
+        "REQUEST_INVALID",
+        "request",
+        "Please provide a valid chat request.",
+        False,
+        422,
+    )
+    return JSONResponse(
+        status_code=app_error.status_code,
+        content=app_error.payload(request_id),
+        headers={REQUEST_ID_HEADER: request_id},
+    )
+
 
 
 @app.middleware("http")

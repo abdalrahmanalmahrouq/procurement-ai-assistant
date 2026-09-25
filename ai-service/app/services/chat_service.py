@@ -11,6 +11,7 @@ from uuid import uuid4
 from langsmith import get_current_run_tree, set_run_metadata, trace
 
 from app.ai.agent.graph import MAX_QUERY_RETRIES, procurement_graph
+from app.errors import ApplicationError, classify_error
 from app.models.chat import ChatResponse
 from app.observability import normalize_request_id
 from app.services.conversation_service import (
@@ -29,6 +30,9 @@ TRACE_TAGS = ["procurement-ai", "chat-request"]
 
 def trace_outcome(state: dict[str, Any]) -> str:
     """Map the final graph state to a stable operational outcome."""
+    if state.get("agent_error"):
+        return "controlled_failure"
+
     if state.get("route_category") == "analytical":
         if state.get("execution_error"):
             return "execution_failure"
@@ -55,6 +59,8 @@ def trace_metadata(
         "outcome": outcome,
         "retry_count": retry_count if isinstance(retry_count, int) else 0,
         "has_visualization": bool(state.get("visualization")),
+        "error_code": (state.get("agent_error") or {}).get("code"),
+        "failed_stage": (state.get("agent_error") or {}).get("stage"),
     }
 
 
@@ -100,6 +106,7 @@ def initial_state(
         "contextual_result_count": 0,
         "visualization": None,
         "answer": "",
+        "agent_error": None,
     }
     if query_context is not None:
         state.update({
@@ -230,11 +237,13 @@ def process_chat_message(
                     result,
                     request_id=request_id,
                 )
+                agent_error = result.get("agent_error")
                 finish_turn(
                     conversation_id=conversation_id,
                     turn_id=turn_id,
                     response=response,
-                    query_context=reusable_query_context(result),
+                    status="error" if agent_error else "complete",
+                    query_context=reusable_query_context(result) if not agent_error else None,
                 )
                 update_trace_metadata(trace_context=root_trace, **trace_metadata(
                     request_id=request_id,
@@ -243,7 +252,17 @@ def process_chat_message(
                     state=result,
                     outcome=trace_outcome(result),
                 ))
+                if agent_error:
+                    raise ApplicationError(
+                        agent_error["code"],
+                        agent_error["stage"],
+                        agent_error["message"],
+                        agent_error["retryable"],
+                        422 if agent_error["code"] == "QUERY_VALIDATION_FAILED" else 503,
+                    )
                 return response
+            except ApplicationError:
+                raise
             except Exception:
                 update_trace_metadata(trace_context=root_trace, **trace_metadata(
                     request_id=request_id,
@@ -253,18 +272,31 @@ def process_chat_message(
                     outcome="agent_failure",
                 ))
                 raise
-    except Exception:
+    except ApplicationError:
+        raise
+    except Exception as error:
+        app_error = classify_error(error)
+        failed_state = {
+            **state,
+            "agent_error": {
+                "code": app_error.code,
+                "stage": app_error.stage,
+                "message": app_error.message,
+                "retryable": app_error.retryable,
+            },
+            "answer": app_error.message,
+        }
         finish_turn(
             conversation_id=conversation_id,
             turn_id=turn_id,
             response=chat_response(
                 conversation_id,
-                {**state, "answer": PUBLIC_FAILURE_MESSAGE},
+                failed_state,
                 request_id=request_id,
             ),
             status="error",
         )
-        raise
+        raise app_error from error
 
 
 def progress(step: str, status: str, label: str) -> dict[str, Any]:
@@ -288,6 +320,7 @@ async def stream_chat_message(
     started = False
     trace_run = None
     trace_open = False
+    failed_stage = "route_question"
 
     try:
         state = initial_state(
@@ -356,17 +389,21 @@ async def stream_chat_message(
                     if not isinstance(update, dict):
                         continue
                     state.update(update)
+                    failed_stage = node
                     if node == "route_question":
                         yield progress(node, "complete", "Request understood")
                         if state.get("route_category") == "analytical":
+                            failed_stage = "generate_query"
                             yield progress("generate_query", "running", "Generating MongoDB query")
                         elif state.get("route_category") == "contextual_content":
+                            failed_stage = "contextual_content"
                             yield progress(
                                 "contextual_content",
                                 "running",
                                 "Using the previous result",
                             )
                         else:
+                            failed_stage = "generate_direct_response"
                             yield progress("generate_direct_response", "running", "Preparing response")
                     elif node == "generate_direct_response":
                         yield progress(node, "complete", "Response prepared")
@@ -395,18 +432,22 @@ async def stream_chat_message(
                             "query_description": state.get("query_description", ""),
                             "retry_count": state.get("retry_count", 0),
                         }
+                        failed_stage = "validate_query"
                         yield progress("validate_query", "running", "Validating query safety")
                     elif node == "validate_query":
                         if state.get("is_valid"):
                             yield progress(node, "complete", "Query passed safety checks")
+                            failed_stage = "execute_query"
                             yield progress("execute_query", "running", "Querying procurement data")
                         else:
                             yield progress(node, "error", "Query did not pass safety checks")
                             if state.get("retry_count", 0) < MAX_QUERY_RETRIES:
+                                failed_stage = "correct_query"
                                 yield progress("correct_query", "running", f"Correcting query · attempt {state.get('retry_count', 0) + 1}")
                     elif node == "execute_query":
                         failed = bool(state.get("execution_error"))
                         yield progress(node, "error" if failed else "complete", "Could not retrieve data" if failed else "Procurement results retrieved")
+                        failed_stage = "generate_answer"
                         yield progress("generate_answer", "running", "Preparing response")
                     elif node == "generate_visualization":
                         yield progress(node, "complete", "Visualization prepared")
@@ -440,6 +481,26 @@ async def stream_chat_message(
             state,
             request_id=request_id,
         )
+        agent_error = state.get("agent_error")
+        if agent_error:
+            finish_turn(
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+                response=response,
+                status="error",
+            )
+            persisted = True
+            update_trace_metadata(trace_context=trace_run, **trace_metadata(
+                request_id=request_id,
+                conversation_id=conversation_id,
+                turn_id=turn_id,
+                state=state,
+                outcome="controlled_failure",
+            ))
+            await trace_run.__aexit__(None, None, None)
+            trace_open = False
+            yield {"type": "error", "request_id": request_id, "conversation_id": conversation_id, "message": agent_error["message"], "error": agent_error}
+            return
         finish_turn(
             conversation_id=conversation_id,
             turn_id=turn_id,
@@ -470,6 +531,8 @@ async def stream_chat_message(
             trace_open = False
         raise
     except Exception as error:
+        app_error = classify_error(error, failed_stage)
+        state = {**state, "agent_error": {"code": app_error.code, "stage": app_error.stage, "message": app_error.message, "retryable": app_error.retryable}, "answer": app_error.message}
         update_trace_metadata(trace_context=trace_run, **trace_metadata(
             request_id=request_id,
             conversation_id=conversation_id,
@@ -491,7 +554,7 @@ async def stream_chat_message(
                 turn_id=turn_id,
                 response=chat_response(
                     conversation_id,
-                    {**state, "answer": PUBLIC_FAILURE_MESSAGE},
+                    state,
                     request_id=request_id,
                 ),
                 status="error",
@@ -505,7 +568,9 @@ async def stream_chat_message(
         yield {
             "type": "error",
             "request_id": request_id,
-            "message": PUBLIC_FAILURE_MESSAGE,
+            "conversation_id": conversation_id,
+            "message": app_error.message,
+            "error": state["agent_error"],
         }
     finally:
         if trace_open and trace_run is not None:

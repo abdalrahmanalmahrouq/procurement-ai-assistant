@@ -3,7 +3,7 @@ import json
 import logging
 from contextlib import suppress
 
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi import (
     APIRouter,
     HTTPException,
@@ -18,6 +18,7 @@ from app.models.chat import (
     ConversationMessages,
     ConversationSummary,
 )
+from app.errors import ApplicationError, classify_error
 from app.observability import REQUEST_ID_HEADER, get_request_id
 
 from app.services.chat_service import (
@@ -135,16 +136,17 @@ def chat(
             request_id=request_id,
         )
 
-    except Exception:
-        logger.exception(
-            "AI assistant request failed request_id=%s",
-            request_id,
+    except ApplicationError as app_error:
+        return JSONResponse(
+            status_code=app_error.status_code,
+            content=app_error.payload(request_id),
+            headers={REQUEST_ID_HEADER: request_id},
         )
-
-        raise HTTPException(
-            status_code=500,
-            detail=(
-                "The AI assistant was unable "
-                "to process the request."
-            ),
+    except Exception as error:
+        logger.exception("AI assistant request failed request_id=%s", request_id)
+        app_error = classify_error(error)
+        return JSONResponse(
+            status_code=app_error.status_code,
+            content=app_error.payload(request_id),
+            headers={REQUEST_ID_HEADER: request_id},
         )

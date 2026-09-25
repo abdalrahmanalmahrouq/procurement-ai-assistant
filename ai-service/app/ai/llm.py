@@ -24,5 +24,5 @@ def get_llm() -> ChatOpenAI:
         # Retrying every call here can exceed the browser's request deadline;
         # graph-level query correction remains the controlled retry mechanism.
         max_retries=0,
-        timeout=30,
+        timeout=float(os.getenv("OPENROUTER_TIMEOUT_SECONDS", "30")),
     )

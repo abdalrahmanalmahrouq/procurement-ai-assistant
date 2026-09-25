@@ -4,6 +4,7 @@ import {
   fetchConversation,
   fetchConversations,
   streamChat,
+  ChatServiceError,
 } from '../services/chatService';
 import type { ChatEvent, ChatTurn, ConversationSummary, StoredMessage } from '../types/chat';
 
@@ -229,7 +230,7 @@ export function useChat() {
     const timeout = window.setTimeout(() => {
       timedOut = true;
       controller.abort();
-    }, 180_000);
+    }, Number(import.meta.env.VITE_CHAT_TIMEOUT_MS ?? 180_000));
 
     try {
       await streamChat(question, conversationId.current, (event) => {
@@ -244,9 +245,13 @@ export function useChat() {
       }, controller.signal, requestId);
     } catch (error) {
       if (activeRequest.current !== controller) return;
+      const details = error instanceof ChatServiceError ? error.details : undefined;
       const message = timedOut ? 'This request took too long. Please try again.'
         : error instanceof Error ? error.message : 'Unable to connect to the assistant. Please try again.';
-      setTurns((current) => current.map((item) => item.id === turn.id ? { ...item, status: 'error', error: message } : item));
+      setTurns((current) => current.map((item) => item.id === turn.id ? {
+        ...item, answer: '', visualization: null, status: 'error', error: message,
+        errorCode: details?.code, failedStage: details?.stage, retryable: details?.retryable ?? true,
+      } : item));
       if (conversationId.current) void refreshConversations();
     } finally {
       window.clearTimeout(timeout);

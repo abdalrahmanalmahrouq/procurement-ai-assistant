@@ -129,7 +129,7 @@ export function AssistantPage() {
                 <ChatMessage
                   key={turn.id}
                   turn={turn}
-                  canRetry={!isStreaming && index === turns.length - 1}
+                  canRetry={!isStreaming && index === turns.length - 1 && turn.retryable !== false}
                   onRetry={() => { stickToBottom.current = true; void sendMessage(turn.question, turn.id); }}
                 />
               ))}

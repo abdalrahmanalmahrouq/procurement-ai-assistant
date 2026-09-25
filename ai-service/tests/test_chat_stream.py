@@ -198,17 +198,20 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
             pipeline_json='[{"$out": "forbidden"}]', description="Invalid query"
         )
         events = await self.collect("Another question", first[0]["conversation_id"])
-        self.assertEqual(events[-1]["retry_count"], 1)
-        self.assertEqual(events[-1]["result_count"], 0)
-        self.assertIn("couldn't generate a valid", events[-1]["answer"])
+        self.assertEqual(events[-1]["type"], "error")
+        self.assertEqual(events[-1]["error"]["code"], "QUERY_VALIDATION_FAILED")
+        self.assertEqual(events[-1]["error"]["stage"], "validate_query")
+        self.assertFalse(any(event["type"] == "done" for event in events))
         self.collection.aggregate.assert_called_once()
         self.assertEqual(len([e for e in events if e["type"] == "query"]), 2)
 
     async def test_execution_error_is_publicly_summarized_and_next_turn_recovers(self):
         self.collection.aggregate.side_effect = OperationFailure("secret database details")
         first = await self.collect()
-        self.assertIn("unable to retrieve", first[-1]["answer"])
+        self.assertEqual(first[-1]["type"], "error")
+        self.assertEqual(first[-1]["error"]["code"], "DATABASE_UNAVAILABLE")
         self.assertNotIn("secret database details", json.dumps(first))
+        self.assertFalse(any(event["type"] == "done" for event in first))
         self.assertTrue(any(e.get("step") == "execute_query" and e.get("status") == "error" for e in first))
         self.collection.aggregate.side_effect = None
         second = await self.collect("Try another query", first[0]["conversation_id"])
@@ -425,7 +428,11 @@ class ChatStreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(closed)
 
     def test_existing_json_endpoint_contract(self):
-        result = process_chat_message("How many line records?", str(uuid4()))
+        conversation_id = str(uuid4())
+        with patch("app.services.chat_service.load_chat_history", return_value=[]), patch(
+            "app.services.chat_service.load_query_context", return_value=None
+        ):
+            result = process_chat_message("How many line records?", conversation_id)
         self.assertEqual(result["answer"], "There are **3** line records.")
         self.assertEqual(result["result_count"], 1)
         self.assertEqual(result["pipeline"], [{"$count": "count"}])

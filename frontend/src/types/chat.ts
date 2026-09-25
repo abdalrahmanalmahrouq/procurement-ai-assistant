@@ -37,6 +37,13 @@ export interface ChatProgress {
   label: string;
 }
 
+export interface ChatErrorDetails {
+  code: string;
+  stage: string;
+  message: string;
+  retryable: boolean;
+}
+
 export type ChatEvent =
   | { type: 'start'; request_id: string; conversation_id: string }
   | ({ type: 'progress' } & ChatProgress)
@@ -44,7 +51,7 @@ export type ChatEvent =
   | { type: 'visualization'; visualization: Visualization }
   | { type: 'answer_delta'; text: string }
   | ({ type: 'done' } & ChatResponse)
-  | { type: 'error'; request_id: string; message: string };
+  | { type: 'error'; request_id: string; conversation_id?: string; message: string; error?: ChatErrorDetails };
 
 export interface ChatTurn {
   id: string;
@@ -61,6 +68,9 @@ export interface ChatTurn {
   retryCount: number;
   visualization: Visualization | null;
   error?: string;
+  errorCode?: string;
+  failedStage?: string;
+  retryable?: boolean;
 }
 
 export interface ConversationSummary {

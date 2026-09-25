@@ -2,11 +2,21 @@ import type { ChatEvent, ConversationMessages, ConversationSummary } from '../ty
 
 const AI_API_URL = import.meta.env.VITE_AI_API_URL ?? '';
 
+export class ChatServiceError extends Error {
+  constructor(
+    message: string,
+    readonly details?: { code: string; stage: string; message: string; retryable: boolean },
+  ) {
+    super(message);
+    this.name = 'ChatServiceError';
+  }
+}
+
 async function getJson<T>(path: string, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${AI_API_URL}${path}`, { signal });
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { detail?: unknown } | null;
-    throw new Error(typeof body?.detail === 'string' ? body.detail : `The request failed (${response.status}).`);
+    const body = await response.json().catch(() => null) as { detail?: unknown; error?: { code: string; stage: string; message: string; retryable: boolean } } | null;
+    throw new ChatServiceError(body?.error?.message ?? (typeof body?.detail === 'string' ? body.detail : `The request failed (${response.status}).`), body?.error);
   }
   return response.json() as Promise<T>;
 }
@@ -25,7 +35,7 @@ export async function deleteConversation(conversationId: string): Promise<void> 
     { method: 'DELETE' },
   );
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { detail?: unknown } | null;
+    const body = await response.json().catch(() => null) as { detail?: unknown; error?: { code: string; stage: string; message: string; retryable: boolean } } | null;
     throw new Error(
       typeof body?.detail === 'string'
         ? body.detail
@@ -49,8 +59,16 @@ export async function consumeChatStream(
       .filter((line) => line.startsWith('data:'))
       .map((line) => line.slice(5).trimStart()).join('\n');
     if (!data) return; // Heartbeat or SSE metadata.
-    const event = JSON.parse(data) as ChatEvent;
-    if (event.type === 'error') throw new Error(event.message);
+    let event: ChatEvent;
+    try {
+      event = JSON.parse(data) as ChatEvent;
+    } catch {
+      throw new ChatServiceError(
+        'The assistant stream was interrupted. Please try again.',
+        { code: 'STREAM_INTERRUPTED', stage: 'stream', message: 'The assistant stream was interrupted. Please try again.', retryable: true },
+      );
+    }
+    if (event.type === 'error') throw new ChatServiceError(event.error?.message ?? event.message, event.error);
     onEvent(event);
     if (event.type === 'done') completed = true;
   }
@@ -84,19 +102,28 @@ export async function streamChat(
   signal: AbortSignal,
   requestId: string = crypto.randomUUID(),
 ): Promise<void> {
-  const response = await fetch(`${AI_API_URL}/api/chat/stream`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-      'X-Request-ID': requestId,
-    },
-    body: JSON.stringify({ message, conversation_id: conversationId }),
-    signal,
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${AI_API_URL}/api/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        'X-Request-ID': requestId,
+      },
+      body: JSON.stringify({ message, conversation_id: conversationId }),
+      signal,
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error;
+    throw new ChatServiceError(
+      'Unable to reach the assistant service. Please try again.',
+      { code: 'AI_SERVICE_UNAVAILABLE', stage: 'connection', message: 'Unable to reach the assistant service. Please try again.', retryable: true },
+    );
+  }
   if (!response.ok) {
-    const body = await response.json().catch(() => null) as { detail?: unknown } | null;
-    throw new Error(typeof body?.detail === 'string' ? body.detail : `The assistant request failed (${response.status}). Please try again.`);
+    const body = await response.json().catch(() => null) as { detail?: unknown; error?: { code: string; stage: string; message: string; retryable: boolean } } | null;
+    throw new ChatServiceError(body?.error?.message ?? (typeof body?.detail === 'string' ? body.detail : `The assistant request failed (${response.status}). Please try again.`), body?.error);
   }
   if (!response.body || !response.headers.get('content-type')?.includes('text/event-stream')) {
     throw new Error('The server did not return a chat stream. Please check that the AI service is running.');

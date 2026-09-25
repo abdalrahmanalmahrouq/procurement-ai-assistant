@@ -48,5 +48,8 @@ class ProcurementAgentState(TypedDict, total=False):
     # Final response
     answer: str
 
+    # Controlled failures that must not be reported as successful answers.
+    agent_error: dict[str, Any] | None
+
     # Retry handling
     retry_count: int
