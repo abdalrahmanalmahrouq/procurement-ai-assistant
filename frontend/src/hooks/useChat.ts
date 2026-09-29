@@ -8,7 +8,7 @@ import {
 } from '../services/chatService';
 import type { ChatEvent, ChatTurn, ConversationSummary, StoredMessage } from '../types/chat';
 
-const ACTIVE_CONVERSATION_KEY = 'penny.activeConversationId';
+const ACTIVE_CONVERSATION_KEY = 'procurement-ai-assistant.activeConversationId';
 
 function readActiveConversationId(): string | undefined {
   try {

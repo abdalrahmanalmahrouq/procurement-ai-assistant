@@ -8,7 +8,7 @@ load_dotenv()
 
 client = MongoClient(os.getenv("MONGODB_URI"))
 
-db = client[os.getenv("MONGODB_DB", "penny_procurement")]
+db = client[os.getenv("MONGODB_DB", "procurement_ai_assistant")]
 collection = db[os.getenv("COLLECTION_NAME", "procurement_records")]
 conversations = db["conversations"]
 messages = db["messages"]

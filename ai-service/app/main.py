@@ -11,7 +11,7 @@ from app.observability import REQUEST_ID_HEADER, get_request_id
 from app.routers.chat import router as chat_router
 
 
-app = FastAPI(title="Penny Procurement AI Service")
+app = FastAPI(title="Procurement AI Service")
 logger = logging.getLogger(__name__)
 
 
@@ -74,7 +74,7 @@ async def request_id_middleware(request, call_next):
 
 @app.get("/")
 def root():
-    return {"message": "Penny Procurement AI service is running"}
+    return {"message": "Procurement AI service is running"}
 
 
 app.add_middleware(

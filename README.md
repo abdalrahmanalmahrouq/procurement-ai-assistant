@@ -1,6 +1,6 @@
 # Procurement Analytics & AI Assistant
 
-A full-stack procurement analytics application built on the **California public procurement dataset**. The project combines a React analytics dashboard with a FastAPI/MongoDB backend and a conversational AI assistant that translates natural-language procurement questions into validated MongoDB aggregation pipelines.
+A full-stack procurement analytics application built on the **California public procurement dataset**. The project combines a React analytics dashboard, a FastAPI analytics API, and an independent FastAPI AI service that translates natural-language procurement questions into validated MongoDB aggregation pipelines.
 
 The main goal of the project is to demonstrate how traditional procurement analytics and an agentic AI workflow can work together over the same source data.
 
@@ -19,6 +19,7 @@ The main goal of the project is to demonstrate how traditional procurement analy
 - Persistent conversation history backed by MongoDB
 - Independent chats with a conversation sidebar and follow-up context
 - Server-Sent Events (SSE) for live workflow progress and streamed answers
+- Request ID correlation across the browser, AI API, stored turns, and LangSmith
 - Generated MongoDB pipeline available in the UI for transparency
 
 ---
@@ -28,7 +29,8 @@ The main goal of the project is to demonstrate how traditional procurement analy
 | Layer | Technology |
 | --- | --- |
 | Frontend | React, TypeScript, Tailwind CSS |
-| Backend | FastAPI, Python |
+| Analytics API | FastAPI, Python |
+| AI service | FastAPI, LangChain, LangGraph |
 | Database | MongoDB Atlas |
 | AI orchestration | LangChain, LangGraph |
 | LLM provider | OpenRouter |
@@ -42,17 +44,19 @@ The main goal of the project is to demonstrate how traditional procurement analy
 
 ```mermaid
 flowchart LR
-    U[React UI] --> API[FastAPI]
-    API --> H[(Conversations and messages)]
+    U[React UI] --> API[Analytics API]
+    U --> AI[AI Service]
+    API --> M[(MongoDB Atlas)]
+    AI --> H[(Conversations and messages)]
     H --> G
-    API --> G[LangGraph Agent]
+    AI --> G[LangGraph Agent]
     G --> R{Route request}
     R -->|Greeting / help / out of scope| D[Direct response]
     R -->|Analytical| Q[Generate MongoDB Pipeline]
     Q --> V[Validate Pipeline]
     V -->|Invalid| C[Correct Query]
     C --> V
-    V -->|Valid| M[(MongoDB Atlas)]
+    V -->|Valid| M
     M --> A[Generate Grounded Answer]
     A --> S[SSE / Chat Response]
     S --> U
@@ -136,23 +140,26 @@ The validator is intentionally separate from the LLM. It restricts unsupported o
 
 ## Selected API Endpoints
 
-The backend contains additional analytics routes; these are some of the most important ones.
+The analytics API runs on port `8000`, while the independent AI service runs on
+port `8001`.
 
-| Method | Endpoint | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/orders/summary` | Order KPIs and procurement summary |
-| `GET` | `/api/orders` | Paginated and filterable order explorer |
-| `GET` | `/api/suppliers/ranking` | Top suppliers by procurement value |
-| `GET` | `/api/departments/summary` | Department-level procurement KPIs |
-| `POST` | `/api/chat` | Standard AI assistant request |
-| `POST` | `/api/chat/stream` | Streaming AI workflow using SSE |
-| `GET` | `/api/chat/conversations` | Conversation history for the sidebar |
-| `GET` | `/api/chat/conversations/{id}` | A conversation and all of its messages |
+| Service | Method | Endpoint | Purpose |
+| --- | --- | --- | --- |
+| Analytics | `GET` | `/api/orders/summary` | Order KPIs and procurement summary |
+| Analytics | `GET` | `/api/orders` | Paginated and filterable order explorer |
+| Analytics | `GET` | `/api/suppliers/ranking` | Top suppliers by procurement value |
+| Analytics | `GET` | `/api/departments/summary` | Department-level procurement KPIs |
+| AI | `POST` | `/api/chat` | Standard AI assistant request |
+| AI | `POST` | `/api/chat/stream` | Streaming AI workflow using SSE |
+| AI | `GET` | `/api/chat/conversations` | Conversation history for the sidebar |
+| AI | `GET` | `/api/chat/conversations/{id}` | A conversation and all of its messages |
 
 FastAPI also exposes interactive API documentation at:
 
 ```text
-http://127.0.0.1:8000/```
+Analytics API: http://127.0.0.1:8000/docs
+AI service:    http://127.0.0.1:8001/docs
+```
 
 ---
 
@@ -162,6 +169,12 @@ http://127.0.0.1:8000/```
 .
 ├── backend/
 │   └── app/
+│       ├── database/
+│       ├── queries/
+│       ├── routers/
+│       └── services/
+├── ai-service/
+│   └── app/
 │       ├── ai/
 │       │   ├── agent/
 │       │   ├── nodes/
@@ -169,7 +182,7 @@ http://127.0.0.1:8000/```
 │       │   ├── schema/
 │       │   └── validators/
 │       ├── database/
-│       ├── queries/
+│       ├── models/
 │       ├── routers/
 │       └── services/
 ├── frontend/
@@ -186,11 +199,39 @@ http://127.0.0.1:8000/```
 
 ## Local Setup
 
+### Run with Docker Compose
+
+Docker Compose starts the React frontend, analytics API, and AI service together,
+with source mounts and automatic reload enabled for all three services.
+
+First, create the local environment file and fill in your MongoDB and OpenRouter
+credentials:
+
+```bash
+cp .env.example .env
+```
+
+Then build and start the application from the repository root:
+
+```bash
+docker compose up --build
+```
+
+Open the frontend at `http://localhost:5173`, analytics documentation at
+`http://localhost:8000/docs`, and AI service documentation at
+`http://localhost:8001/docs`. Stop the services with `Ctrl+C`, or run
+`docker compose down` if they were started in detached mode.
+
+In Docker, analytics requests use `VITE_API_URL` (port `8000`) and chat requests
+use `VITE_AI_API_URL` (port `8001`). Both values can be overridden in `.env`.
+
+The remaining steps describe the non-Docker local setup.
+
 ### 1. Clone the repository
 
 ```bash
 git clone <YOUR_REPOSITORY_URL>
-cd penny-procurement-assessment
+cd procurement-ai-assistant
 ```
 
 ### 2. Create the Conda environment
@@ -200,33 +241,57 @@ conda create -n procurement-ai-assistant python=3.11
 conda activate procurement-ai-assistant
 ```
 
-### 3. Install backend dependencies
+### 3. Install service dependencies
 
 From the backend directory:
 
 ```bash
 cd backend
 pip install -r requirements.txt
+
+cd ../ai-service
+pip install -r requirements.txt
 ```
 
-If your dependency file is maintained at the repository root, run the equivalent command from that location instead.
-
-The backend relies on packages such as FastAPI, Uvicorn, PyMongo, Pandas, LangChain, LangGraph, `langchain-openai`, Pydantic, `python-dotenv`, and `dnspython`.
+The analytics backend has only API and MongoDB dependencies. LangChain,
+LangGraph, and the OpenRouter client are isolated in the AI service.
 
 ### 4. Configure environment variables
 
-Create a `.env` file in the location used by the backend configuration.
+Create a root `.env` file shared by the Compose services.
 
 ```env
 MONGODB_URI=mongodb+srv://<username>:<password>@<cluster-url>/
-MONGODB_DB=penny_procurement
+MONGODB_DB=procurement_ai_assistant
 
 OPENROUTER_API_KEY=<your-openrouter-api-key>
 OPENROUTER_MODEL=xiaomi/mimo-v2.5
 OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=<your-langsmith-api-key>
+LANGSMITH_PROJECT=procurement-ai-assistant
+APP_ENV=development
+
+VITE_API_URL=http://localhost:8000
+VITE_AI_API_URL=http://localhost:8001
 ```
 
 Never commit `.env` to source control.
+
+When LangSmith tracing is enabled, every AI prompt creates one LangGraph trace
+containing the agent nodes and nested model calls. The browser-generated UUID is
+sent as `X-Request-ID`, returned in the response and chat events, stored with the
+conversation turn, and attached to the trace as `metadata.request_id`. Use that
+field to find the full agent cycle in LangSmith or correlate it with other
+observability tools. Invalid or missing incoming request IDs are replaced with a
+server-generated UUID.
+
+Each completed agent trace also records `route_category`, `outcome`,
+`retry_count`, `has_visualization`, and `environment` metadata. Use these fields
+to build LangSmith charts for route volume, failures, retries, latency, and cost.
+For route distribution, chart only root traces named
+`procurement-agent-request` and group them by `metadata.route_category`.
 
 ### 5. Prepare MongoDB Atlas
 
@@ -278,11 +343,26 @@ http://127.0.0.1:8000
 Swagger documentation:
 
 ```text
-http://127.0.0.1:8000/```
+http://127.0.0.1:8000/docs
+```
 
-### 8. Run the frontend
+### 8. Run the AI service
 
-In a second terminal:
+From `ai-service/`, in a second terminal:
+
+```bash
+uvicorn app.main:app --reload --port 8001
+```
+
+AI service documentation:
+
+```text
+http://127.0.0.1:8001/docs
+```
+
+### 9. Run the frontend
+
+In a third terminal:
 
 ```bash
 cd frontend
@@ -296,7 +376,9 @@ The Vite development server normally runs at:
 http://localhost:5173
 ```
 
-The frontend is intentionally lightweight relative to the backend/AI implementation: it consumes the analytics APIs, renders dashboard views, manages the conversation ID, and displays streamed AI responses and generated MongoDB pipelines.
+The frontend consumes the analytics and AI APIs, renders dashboard views,
+manages the conversation ID, and displays streamed AI responses and generated
+MongoDB pipelines.
 
 ---
 
@@ -328,7 +410,7 @@ This project uses the **Large Purchases by the State of California** public proc
 ## Notes
 
 - The application uses USD because the source data represents California public procurement.
-- Conversation memory currently depends on the configured LangGraph checkpointer. If an in-memory checkpointer is used, conversations are reset when the backend process restarts.
+- Conversation memory currently depends on the configured LangGraph checkpointer. If an in-memory checkpointer is used, conversations are reset when the AI service restarts.
 - AI-generated answers should remain grounded in database results. The generated MongoDB pipeline is exposed in the UI to make the analytical process easier to inspect.
 
 ---

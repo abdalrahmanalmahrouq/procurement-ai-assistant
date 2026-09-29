@@ -8,14 +8,14 @@ from app.routers.departments import router as departments_router
 
 
 app = FastAPI(
-    title="Penny Procurement Analytics API"
+    title="Procurement Analytics API"
 )
 
 
 @app.get("/")
 def root():
     return {
-        "message": "Penny Procurement API is running"
+        "message": "Procurement API is running"
     }
 
 app.add_middleware(

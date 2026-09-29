@@ -9,7 +9,7 @@ load_dotenv()
 MONGODB_URI = os.getenv("MONGODB_URI")
 MONGODB_DB = os.getenv(
     "MONGODB_DB",
-    "penny_procurement"
+    "procurement_ai_assistant"
 )
 
 

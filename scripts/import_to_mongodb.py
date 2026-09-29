@@ -25,7 +25,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 MONGODB_URI = os.getenv("MONGODB_URI")
 DATABASE_NAME = os.getenv(
     "MONGODB_DB",
-    "penny_procurement"
+    "procurement_ai_assistant"
 )
 
 COLLECTION_NAME = os.getenv("COLLECTION_NAME")
