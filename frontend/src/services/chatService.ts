@@ -1,4 +1,5 @@
 import type { ChatEvent, ConversationMessages, ConversationSummary } from '../types/chat';
+import type { ReportSpec } from '../types/reports';
 
 const AI_API_URL = import.meta.env.VITE_AI_API_URL ?? '';
 
@@ -101,6 +102,7 @@ export async function streamChat(
   onEvent: (event: ChatEvent) => void,
   signal: AbortSignal,
   requestId: string = crypto.randomUUID(),
+  reportSpec?: ReportSpec,
 ): Promise<void> {
   let response: Response;
   try {
@@ -111,7 +113,7 @@ export async function streamChat(
         Accept: 'text/event-stream',
         'X-Request-ID': requestId,
       },
-      body: JSON.stringify({ message, conversation_id: conversationId }),
+      body: JSON.stringify({ message, conversation_id: conversationId, report_spec: reportSpec }),
       signal,
     });
   } catch (error) {

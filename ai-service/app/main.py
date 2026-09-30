@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.errors import ApplicationError
 from app.observability import REQUEST_ID_HEADER, get_request_id
 from app.routers.chat import router as chat_router
+from app.routers.reports import router as reports_router
 
 
 app = FastAPI(title="Procurement AI Service")
@@ -90,3 +91,4 @@ app.add_middleware(
 )
 
 app.include_router(chat_router)
+app.include_router(reports_router)

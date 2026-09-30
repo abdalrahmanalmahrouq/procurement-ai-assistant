@@ -40,7 +40,7 @@ def classify_error(error: Exception, stage: str = "agent") -> ApplicationError:
 
     if isinstance(error, TimeoutError) or "timeout" in error_name or "timeout" in error_text:
         return ApplicationError(
-            "MODEL_TIMEOUT" if stage in {"route_question", "generate_query", "correct_query", "generate_answer", "contextual_content", "generate_visualization"} else "REQUEST_TIMEOUT",
+            "MODEL_TIMEOUT" if stage in {"route_question", "generate_query", "correct_query", "generate_answer", "contextual_content", "generate_visualization", "plan_report", "generate_report"} else "REQUEST_TIMEOUT",
             stage,
             "The assistant took too long to respond. Please try again.",
             True,
@@ -50,7 +50,7 @@ def classify_error(error: Exception, stage: str = "agent") -> ApplicationError:
     if isinstance(error, PyMongoError):
         return ApplicationError(
             "DATABASE_UNAVAILABLE",
-            "execute_query",
+            stage if stage in {"gather_report_data", "save_report"} else "execute_query",
             "Procurement data is temporarily unavailable. Please try again.",
             True,
             503,
@@ -70,6 +70,9 @@ def classify_error(error: Exception, stage: str = "agent") -> ApplicationError:
         "generate_query",
         "correct_query",
         "generate_visualization",
+        "plan_report",
+        "generate_report",
+        "validate_report_content",
     }:
         return ApplicationError(
             "MODEL_OUTPUT_INVALID",

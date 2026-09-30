@@ -1,3 +1,5 @@
+import re
+
 from langgraph.graph import (
     StateGraph,
     START,
@@ -56,15 +58,32 @@ from app.ai.nodes.handle_validation_failure import (
 from app.ai.nodes.save_conversation import (
     save_conversation,
 )
+from app.ai.agent.report_graph import report_graph
 
 MAX_QUERY_RETRIES = 1
 checkpointer = InMemorySaver()
+
+
+REPORT_INTENT = re.compile(
+    r"\breport\b|\b(?:generate|create|prepare|build)\b.{0,100}"
+    r"\b(?:pdf|procurement summary|briefing)\b",
+    re.IGNORECASE,
+)
+
+
+def is_report_request(state: ProcurementAgentState) -> bool:
+    return bool(
+        state.get("report_spec_input")
+        or REPORT_INTENT.search(state.get("question", ""))
+    )
 
 
 def route_after_classification(
     state: ProcurementAgentState,
 ) -> str:
     if state.get("route_category") == "analytical":
+        if is_report_request(state):
+            return "report"
         return "analytical"
 
     if state.get("route_category") == "contextual_content":
@@ -181,6 +200,8 @@ def build_procurement_graph():
         save_conversation,
     )
 
+    builder.add_node("report_workflow", report_graph)
+
     # -----------------------------
     # Define workflow
     # -----------------------------
@@ -196,9 +217,12 @@ def build_procurement_graph():
         {
             "direct": "generate_direct_response",
             "analytical": "generate_query",
+            "report": "report_workflow",
             "contextual_content": "contextual_content",
         },
     )
+
+    builder.add_edge("report_workflow", "save_conversation")
 
     builder.add_edge(
         "generate_direct_response",

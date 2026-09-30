@@ -17,7 +17,7 @@ Choose exactly one route:
   reformatting, summarizing, comparing, calculating from, explaining, or
   visualizing that same result (for example, "put that value in a metric
   card").
-- analytical: A question that requires looking up, filtering, counting,
+- analytical: A procurement report request, or a question that requires looking up, filtering, counting,
   comparing, ranking, grouping, or calculating different procurement data.
   Follow-ups that change a date, filter, measure, ranking, grouping, or scope
   are analytical because they need a new query.

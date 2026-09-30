@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Headphones,
   Home,
+  FileBarChart2,
   PackageCheck,
   Settings,
   Sparkles,
@@ -19,6 +20,7 @@ const primaryItems = [
   { to: '/suppliers', label: 'Suppliers', icon: Users },
   { to: '/departments', label: 'Departments', icon: Building2 },
   { to: '/assistant', label: 'AI Assistant', icon: Sparkles },
+  { to: '/reports', label: 'Reports', icon: FileBarChart2 },
   { to: '/settings', label: 'Settings', icon: Settings },
 ];
 

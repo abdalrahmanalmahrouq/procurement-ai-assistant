@@ -29,6 +29,7 @@ services:
       - "8001:8001"
     volumes:
       - ./ai-service:/app
+      - report_files:/app/report_files
     init: true
     healthcheck:
       test:
@@ -64,3 +65,4 @@ services:
 
 volumes:
   frontend_node_modules:
+  report_files:

@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { ChatTurn, Pipeline } from '../../types/chat';
 import { Visualization } from './Visualization';
+import { reportPdfDownloadUrl } from '../../services/reportService';
 
 const MarkdownAnswer = lazy(() => import('./MarkdownAnswer'));
 
@@ -185,6 +186,7 @@ export function ChatMessage({ turn, onRetry, canRetry }: {
             </Suspense>
           )}
           {turn.visualization && <Visualization visualization={turn.visualization} />}
+          {turn.report && <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm font-semibold text-slate-900">{turn.report.title}</p><p className="mt-1 text-xs text-slate-600">{turn.report.period} · {turn.report.status}</p><div className="mt-3 flex gap-3 text-xs font-semibold text-emerald-800"><a href={`/reports?open=${encodeURIComponent(turn.report.id)}`}>Open preview</a><a href={reportPdfDownloadUrl(turn.report.id)}>Download PDF</a></div></div>}
           {turn.pipeline !== null && <QueryPanel key={`${turn.queryGeneratedAt}-${streaming}`} turn={turn} verified={queryVerified} />}
           {turn.error && (
             <div role="alert" className="mt-4 rounded-lg border border-rose-100 bg-rose-50 p-3 text-sm text-rose-700">

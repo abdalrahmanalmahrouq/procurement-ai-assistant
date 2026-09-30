@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from langsmith import get_current_run_tree, set_run_metadata, trace
 
-from app.ai.agent.graph import MAX_QUERY_RETRIES, procurement_graph
+from app.ai.agent.graph import MAX_QUERY_RETRIES, is_report_request, procurement_graph
 from app.errors import ApplicationError, classify_error
 from app.models.chat import ChatResponse
 from app.observability import normalize_request_id
@@ -59,6 +59,7 @@ def trace_metadata(
         "outcome": outcome,
         "retry_count": retry_count if isinstance(retry_count, int) else 0,
         "has_visualization": bool(state.get("visualization")),
+        "has_report": bool(state.get("report")),
         "error_code": (state.get("agent_error") or {}).get("code"),
         "failed_stage": (state.get("agent_error") or {}).get("stage"),
     }
@@ -82,11 +83,18 @@ def initial_state(
     message: str,
     chat_history: list[dict[str, str]] | None = None,
     query_context: dict[str, Any] | None = None,
+    report_spec: dict[str, Any] | None = None,
+    request_id: str = "",
+    conversation_id: str = "",
 ) -> dict[str, Any]:
     # Current-turn artifacts are reset. Reusable context is loaded into
     # separate fields and can only be selected by the contextual route.
     state = {
         "question": message,
+        "request_id": request_id,
+        "conversation_id": conversation_id,
+        "report_spec_input": report_spec,
+        "report": None,
         "chat_history": chat_history or [],
         "route_category": "analytical",
         "wants_visualization": False,
@@ -122,7 +130,7 @@ def initial_state(
 
 
 def reusable_query_context(state: dict[str, Any]) -> dict[str, Any] | None:
-    if not state.get("has_contextual_data", False):
+    if state.get("report") or not state.get("has_contextual_data", False):
         return None
     return {
         "query_result": state.get("contextual_query_result", []),
@@ -141,13 +149,23 @@ def visualization_payload(state: dict[str, Any]) -> dict[str, Any] | None:
     return visualization.model_dump(mode="json")
 
 
+def report_card(state: dict[str, Any]) -> dict[str, Any] | None:
+    report = state.get("report")
+    if not report:
+        return None
+    return {
+        key: report[key]
+        for key in ("id", "title", "period", "status", "created_at", "conversation_id")
+    }
+
+
 def chat_response(
     conversation_id: str,
     state: dict[str, Any],
     request_id: str | None = None,
 ) -> dict[str, Any]:
     request_id = normalize_request_id(request_id)
-    is_analytical = state.get("route_category", "analytical") == "analytical"
+    is_analytical = state.get("route_category", "analytical") == "analytical" and not state.get("report")
     can_visualize = state.get("route_category") in (
         "analytical",
         "contextual_content",
@@ -166,6 +184,7 @@ def chat_response(
             if can_visualize
             else None
         ),
+        report=report_card(state),
     ).model_dump(mode="json")
 
 
@@ -193,6 +212,7 @@ def process_chat_message(
     conversation_id: str | None = None,
     *,
     request_id: str | None = None,
+    report_spec: dict[str, Any] | None = None,
 ):
     request_id = normalize_request_id(request_id)
     existing_conversation_id = conversation_id
@@ -202,6 +222,7 @@ def process_chat_message(
         message,
         load_chat_history(existing_conversation_id),
         load_query_context(existing_conversation_id),
+        report_spec=report_spec, request_id=request_id, conversation_id=conversation_id,
     )
     start_turn(
         conversation_id=conversation_id,
@@ -308,13 +329,14 @@ async def stream_chat_message(
     conversation_id: str | None = None,
     *,
     request_id: str | None = None,
+    report_spec: dict[str, Any] | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Allowlist public artifacts; never forward raw graph state or reasoning."""
     request_id = normalize_request_id(request_id)
     existing_conversation_id = conversation_id
     conversation_id = conversation_id or str(uuid4())
     turn_id = str(uuid4())
-    state = initial_state(message)
+    state = initial_state(message, report_spec=report_spec, request_id=request_id, conversation_id=conversation_id)
     finished = False
     persisted = False
     started = False
@@ -327,6 +349,7 @@ async def stream_chat_message(
             message,
             load_chat_history(existing_conversation_id),
             load_query_context(existing_conversation_id),
+            report_spec=report_spec, request_id=request_id, conversation_id=conversation_id,
         )
         start_turn(
             conversation_id=conversation_id,
@@ -364,8 +387,15 @@ async def stream_chat_message(
                 turn_id=turn_id,
             ),
             stream_mode=["updates", "messages"],
+            subgraphs=True,
         )) as events:
-            async for mode, chunk in events:
+            async for event in events:
+                # LangGraph emits a namespace for real subgraph events; test
+                # and compatible stream implementations may emit pairs.
+                if len(event) == 3:
+                    _, mode, chunk = event
+                else:
+                    mode, chunk = event
                 if mode == "messages":
                     token, metadata = chunk
                     # Only final answer text belongs in the chat. Do not expose
@@ -390,11 +420,17 @@ async def stream_chat_message(
                         continue
                     state.update(update)
                     failed_stage = node
+                    if node == "report_workflow":
+                        continue
                     if node == "route_question":
                         yield progress(node, "complete", "Request understood")
                         if state.get("route_category") == "analytical":
-                            failed_stage = "generate_query"
-                            yield progress("generate_query", "running", "Generating MongoDB query")
+                            if is_report_request(state):
+                                failed_stage = "plan_report"
+                                yield progress("plan_report", "running", "Planning report")
+                            else:
+                                failed_stage = "generate_query"
+                                yield progress("generate_query", "running", "Generating MongoDB query")
                         elif state.get("route_category") == "contextual_content":
                             failed_stage = "contextual_content"
                             yield progress(
@@ -405,6 +441,22 @@ async def stream_chat_message(
                         else:
                             failed_stage = "generate_direct_response"
                             yield progress("generate_direct_response", "running", "Preparing response")
+                    elif node in ("plan_report", "gather_report_data", "generate_report", "validate_report_content", "render_report", "save_report"):
+                        labels = {
+                            "plan_report": ("Report planned", "gather_report_data", "Retrieving report data"),
+                            "gather_report_data": ("Report data retrieved", "generate_report", "Writing report"),
+                            "generate_report": ("Report written", "validate_report_content", "Validating report"),
+                            "validate_report_content": ("Report validated", "render_report", "Rendering report"),
+                            "render_report": ("Report rendered", "save_report", "Saving report"),
+                            "save_report": ("Report ready", None, None),
+                        }
+                        complete_label, next_step, next_label = labels[node]
+                        yield progress(node, "complete", complete_label)
+                        if next_step:
+                            failed_stage = next_step
+                            yield progress(next_step, "running", next_label)
+                        if node == "save_report" and state.get("report"):
+                            yield {"type": "report", "report": report_card(state)}
                     elif node == "generate_direct_response":
                         yield progress(node, "complete", "Response prepared")
                         if state.get("answer"):

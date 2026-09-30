@@ -28,6 +28,8 @@ def route_question(
     state: ProcurementAgentState,
 ) -> ProcurementAgentState:
     """Classify a turn before any query-generation work is performed."""
+    if state.get("report_spec_input"):
+        return {**state, "route_category": "analytical"}
     if requests_database_mutation(state["question"]):
         return {**state, "route_category": "out_of_scope"}
 

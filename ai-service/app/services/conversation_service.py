@@ -45,6 +45,7 @@ def _message(document: dict[str, Any]) -> dict[str, Any]:
         "result_count": metadata.get("result_count", 0),
         "retry_count": metadata.get("retry_count", 0),
         "visualization": metadata.get("visualization"),
+        "report": metadata.get("report"),
         "status": metadata.get("status", "complete"),
     }
 
@@ -207,6 +208,7 @@ def finish_turn(
         "result_count": response.get("result_count", 0),
         "retry_count": response.get("retry_count", 0),
         "visualization": response.get("visualization"),
+        "report": response.get("report"),
         "status": status,
     }
     # This field is intentionally omitted by _message and all public API

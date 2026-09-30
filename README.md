@@ -119,6 +119,14 @@ The workflow also supports automatic query correction when validation fails, con
 
 ![AI Assistant page](screenshots/ai-assistant.png)
 
+### Procurement Reports
+
+Ask the AI Assistant to generate a report (for example, `Generate a comprehensive procurement report for 2014 with top 10 suppliers, trends, charts, and a PDF`) or use the **Reports** page to choose a report focus, an annual or quarterly period, filters, sections, rankings, charts, tables, and CSV availability. Completed reports can be previewed and reopened without rerunning the AI workflow.
+
+Report requests enter a separate LangGraph subgraph after analytical routing. A planning LLM call turns natural language into a validated report specification; the builder skips that call. Fixed MongoDB aggregations compute spending, distinct order counts, rankings, trends, category results, and prior-period comparisons. Custom analytical sections reuse the existing validated query generation and execution path. A single writing LLM call supplies narrative text; the PDF and CSV renderers use only verified numeric data. The subgraph validates, renders, and saves the report before emitting the terminal success event.
+
+Report metadata and structured data are stored in MongoDB's `reports` collection. PDFs live in `ai-service/report_files/` for local runs or the persistent `report_files` Docker volume. Set `REPORT_STORAGE_DIR` to override the local directory. The AI service currently has no user authentication layer; report access follows the same application-wide access model as conversation history.
+
 ---
 
 ## AI Assistant Workflow
@@ -153,6 +161,10 @@ port `8001`.
 | AI | `POST` | `/api/chat/stream` | Streaming AI workflow using SSE |
 | AI | `GET` | `/api/chat/conversations` | Conversation history for the sidebar |
 | AI | `GET` | `/api/chat/conversations/{id}` | A conversation and all of its messages |
+| AI | `GET` | `/api/reports` | Completed report summaries |
+| AI | `GET` | `/api/reports/{id}` | Saved report content and metadata |
+| AI | `GET` | `/api/reports/{id}/pdf` | Preview or download the PDF |
+| AI | `GET` | `/api/reports/{id}/csv/{section}` | Download a tabular section as CSV |
 
 FastAPI also exposes interactive API documentation at:
 

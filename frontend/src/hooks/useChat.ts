@@ -45,11 +45,13 @@ function applyEvent(turn: ChatTurn, event: ChatEvent): ChatTurn {
       return { ...turn, answer: turn.answer + event.text };
     case 'visualization':
       return { ...turn, visualization: event.visualization };
+    case 'report':
+      return { ...turn, report: event.report };
     case 'done':
       return {
         ...turn, requestId: event.request_id, status: 'complete', answer: event.answer, pipeline: event.pipeline,
         queryDescription: event.query_description, resultCount: event.result_count, retryCount: event.retry_count,
-        visualization: event.visualization,
+        visualization: event.visualization, report: event.report,
       };
     default:
       return turn;
@@ -73,7 +75,7 @@ function messagesToTurns(messages: StoredMessage[]): ChatTurn[] {
         pipeline: null,
         queryDescription: null,
         retryCount: 0,
-        visualization: null,
+        visualization: null, report: null,
         error: failed ? 'The previous assistant response did not finish. Please try again.' : undefined,
       });
       continue;
@@ -92,7 +94,7 @@ function messagesToTurns(messages: StoredMessage[]): ChatTurn[] {
         queryGeneratedAt: message.pipeline ? message.created_at : undefined,
         resultCount: message.result_count,
         retryCount: message.retry_count,
-        visualization: message.visualization,
+        visualization: message.visualization, report: message.report,
       });
     }
   }
@@ -222,7 +224,7 @@ export function useChat() {
     const turn: ChatTurn = {
       id: retryId ?? crypto.randomUUID(), requestId, question, createdAt: new Date().toISOString(),
       answer: '', status: 'streaming', progress: [], pipeline: null, queryDescription: null, retryCount: 0,
-      visualization: null,
+      visualization: null, report: null,
     };
     setTurns((current) => retryId ? current.map((item) => item.id === retryId ? turn : item) : [...current, turn]);
     setIsStreaming(true);
@@ -249,7 +251,7 @@ export function useChat() {
       const message = timedOut ? 'This request took too long. Please try again.'
         : error instanceof Error ? error.message : 'Unable to connect to the assistant. Please try again.';
       setTurns((current) => current.map((item) => item.id === turn.id ? {
-        ...item, answer: '', visualization: null, status: 'error', error: message,
+        ...item, answer: '', visualization: null, report: null, status: 'error', error: message,
         errorCode: details?.code, failedStage: details?.stage, retryable: details?.retryable ?? true,
       } : item));
       if (conversationId.current) void refreshConversations();

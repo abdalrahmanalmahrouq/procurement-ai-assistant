@@ -81,6 +81,7 @@ async def chat_stream(request: ChatRequest, http_request: Request):
             request.message,
             request.conversation_id,
             request_id=request_id,
+            report_spec=request.report_spec.model_dump(mode="json") if request.report_spec else None,
         )
         pending = None
         try:
@@ -134,6 +135,7 @@ def chat(
                 request.conversation_id
             ),
             request_id=request_id,
+            report_spec=request.report_spec.model_dump(mode="json") if request.report_spec else None,
         )
 
     except ApplicationError as app_error:

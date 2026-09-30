@@ -8,6 +8,15 @@ class ProcurementAgentState(TypedDict, total=False):
 
     # User input
     question: str
+    request_id: str
+    conversation_id: str
+    report_spec_input: dict[str, Any] | None
+    report_spec: dict[str, Any]
+    report_data: dict[str, Any]
+    report_narrative: dict[str, str]
+    report_valid: bool
+    report_id: str
+    report: dict[str, Any]
 
     # Initial intent routing
     route_category: RouteCategory

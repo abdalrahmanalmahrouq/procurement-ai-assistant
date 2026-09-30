@@ -4,6 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, field_validator
 
 from app.ai.models.visualization_model import Visualization
+from app.models.report import ReportSpec
 
 
 class ChatRequest(BaseModel):
@@ -22,6 +23,8 @@ class ChatRequest(BaseModel):
             "preserve follow-up context."
         )
     )
+
+    report_spec: ReportSpec | None = None
 
     @field_validator("message")
     @classmethod
@@ -48,6 +51,7 @@ class ChatResponse(BaseModel):
     retry_count: int = 0
 
     visualization: Visualization | None = None
+    report: dict[str, Any] | None = None
 
 
 class ConversationSummary(BaseModel):
@@ -71,6 +75,7 @@ class StoredMessage(BaseModel):
     result_count: int = 0
     retry_count: int = 0
     visualization: Visualization | None = None
+    report: dict[str, Any] | None = None
     status: Literal["pending", "complete", "error"] = "complete"
 
 

@@ -1,3 +1,4 @@
+import type { ReportSummary } from './reports';
 export type Pipeline = Record<string, unknown>[];
 export type VisualizationType = 'bar' | 'line' | 'area' | 'pie' | 'donut' | 'metric';
 export type ValueFormat = 'currency' | 'number' | 'percent';
@@ -17,7 +18,7 @@ export interface Visualization {
   data: VisualizationDatum[];
 }
 
-export type ChatStep = 'route_question' | 'generate_direct_response' | 'contextual_content' | 'generate_query' | 'validate_query' | 'correct_query' | 'execute_query' | 'generate_visualization' | 'generate_answer';
+export type ChatStep = 'plan_report' | 'gather_report_data' | 'generate_report' | 'validate_report_content' | 'render_report' | 'save_report' | 'route_question' | 'generate_direct_response' | 'contextual_content' | 'generate_query' | 'validate_query' | 'correct_query' | 'execute_query' | 'generate_visualization' | 'generate_answer';
 export type StepStatus = 'running' | 'complete' | 'error';
 
 export interface ChatResponse {
@@ -29,6 +30,7 @@ export interface ChatResponse {
   result_count: number;
   retry_count: number;
   visualization: Visualization | null;
+  report: ReportSummary | null;
 }
 
 export interface ChatProgress {
@@ -49,6 +51,7 @@ export type ChatEvent =
   | ({ type: 'progress' } & ChatProgress)
   | { type: 'query'; pipeline: Pipeline; query_description: string; retry_count: number }
   | { type: 'visualization'; visualization: Visualization }
+  | { type: 'report'; report: ReportSummary }
   | { type: 'answer_delta'; text: string }
   | ({ type: 'done' } & ChatResponse)
   | { type: 'error'; request_id: string; conversation_id?: string; message: string; error?: ChatErrorDetails };
@@ -67,6 +70,7 @@ export interface ChatTurn {
   resultCount?: number;
   retryCount: number;
   visualization: Visualization | null;
+  report: ReportSummary | null;
   error?: string;
   errorCode?: string;
   failedStage?: string;
@@ -94,6 +98,7 @@ export interface StoredMessage {
   result_count: number;
   retry_count: number;
   visualization: Visualization | null;
+  report: ReportSummary | null;
   status: 'pending' | 'complete' | 'error';
 }
 
